@@ -1,3 +1,4 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
 package com.ahmed.electricitysmart
 
 import android.Manifest
