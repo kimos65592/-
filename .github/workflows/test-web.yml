@@ -29,20 +29,20 @@ jobs:
         run: |
           node -e "const fs=require('fs'); const s=fs.readFileSync('index.html','utf8'); const m=s.match(/<script[^>]*>([\s\S]*?)<\/script>/g)||[]; for(const x of m){const c=x.replace(/^<script[^>]*>|<\/script>$/g,''); if(c.trim()) new Function(c);}; console.log('Client JavaScript syntax OK')"
 
-      - name: Start server
+            - name: Start server
         run: |
           node server.js > server.log 2>&1 &
           echo $! > server.pid
           sleep 5
 
-          if ! kill -0 $(cat server.pid) 2>/dev/null; then
-            echo "Server failed to start."
-            cat server.log || true
-            exit 1
-          fi
+          echo "=== SERVER LOG ==="
+          cat server.log || true
 
-          echo "Server is running."
+          echo "=== NODE PROCESS ==="
+          ps aux | grep '[n]ode server.js' || true
 
+          echo "=== PORT 3000 TEST ==="
+          curl -v http://127.0.0.1:3000/api/health || true
       - name: Health check
         run: |
           curl --fail --silent --show-error \
