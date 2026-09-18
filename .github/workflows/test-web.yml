@@ -3,7 +3,8 @@ name: Test JARVIS Web
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - main
 
 jobs:
   test-web:
@@ -26,36 +27,43 @@ jobs:
 
       - name: Syntax check client
         run: |
-          node -e "const fs=require('fs'); const s=fs.readFileSync('index.html','utf8'); const m=s.match(/<script[^>]*>([\\s\\S]*?)<\\/script>/g)||[]; for(const x of m){const c=x.replace(/^<script[^>]*>|<\\/script>$/g,''); if(c.trim()) new Function(c);}; console.log('Client JavaScript syntax OK')"
+          node -e "const fs=require('fs'); const s=fs.readFileSync('index.html','utf8'); const m=s.match(/<script[^>]*>([\s\S]*?)<\/script>/g)||[]; for(const x of m){const c=x.replace(/^<script[^>]*>|<\/script>$/g,''); if(c.trim()) new Function(c);}; console.log('Client JavaScript syntax OK')"
 
       - name: Start server
-  run: |
-    node server.js > server.log 2>&1 &
-    echo $! > server.pid
-    sleep 5
+        run: |
+          node server.js > server.log 2>&1 &
+          echo $! > server.pid
+          sleep 5
 
-    if ! kill -0 $(cat server.pid) 2>/dev/null; then
-      echo "Server failed to start."
-      cat server.log || true
-      exit 1
-    fi
+          if ! kill -0 $(cat server.pid) 2>/dev/null; then
+            echo "Server failed to start."
+            cat server.log || true
+            exit 1
+          fi
 
-    echo "Server is running."
+          echo "Server is running."
 
       - name: Health check
-        run: curl --fail --silent --show-error http://127.0.0.1:3000/api/health
+        run: |
+          curl --fail --silent --show-error \
+            http://127.0.0.1:3000/api/health
 
       - name: Test API authentication guard
         run: |
-          code=$(curl -s -o /tmp/api-response.json -w "%{http_code}"             -X POST http://127.0.0.1:3000/api/chat             -H "Content-Type: application/json"             --data '{"message":"test"}')
+          code=$(curl -s -o /tmp/api-response.json -w "%{http_code}" \
+            -X POST \
+            http://127.0.0.1:3000/api/chat \
+            -H "Content-Type: application/json" \
+            --data '{"message":"test"}')
+
           echo "HTTP status: $code"
           test "$code" = "401"
 
       - name: Show server log on failure
-  if: failure()
-  run: |
-    if [ -f server.log ]; then
-      cat server.log
-    else
-      echo "server.log was not created."
-    fi
+        if: failure()
+        run: |
+          if [ -f server.log ]; then
+            cat server.log
+          else
+            echo "server.log was not created."
+          fi
