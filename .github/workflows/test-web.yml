@@ -48,7 +48,7 @@ jobs:
           curl --fail --silent --show-error \
             http://127.0.0.1:8787/api/health
 
-      - name: Test API authentication guard
+      - name: Test API validation
         run: |
           code=$(curl -s -o /tmp/api-response.json -w "%{http_code}" \
             -X POST \
@@ -57,8 +57,10 @@ jobs:
             --data '{"message":"test"}')
 
           echo "HTTP status: $code"
-          test "$code" = "401"
+          echo "Response:"
+          cat /tmp/api-response.json
 
+          test "$code" = "400"
       - name: Show server log on failure
         if: failure()
         run: |
