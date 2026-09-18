@@ -1,0 +1,49 @@
+name: Test JARVIS Web
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  test-web:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Syntax check server
+        run: node --check server.js
+
+      - name: Syntax check client
+        run: |
+          node -e "const fs=require('fs'); const s=fs.readFileSync('index.html','utf8'); const m=s.match(/<script[^>]*>([\\s\\S]*?)<\\/script>/g)||[]; for(const x of m){const c=x.replace(/^<script[^>]*>|<\\/script>$/g,''); if(c.trim()) new Function(c);}; console.log('Client JavaScript syntax OK')"
+
+      - name: Start server
+        run: |
+          node server.js > server.log 2>&1 &
+          echo $! > server.pid
+          sleep 3
+
+      - name: Health check
+        run: curl --fail --silent --show-error http://127.0.0.1:3000/api/health
+
+      - name: Test API authentication guard
+        run: |
+          code=$(curl -s -o /tmp/api-response.json -w "%{http_code}"             -X POST http://127.0.0.1:3000/api/chat             -H "Content-Type: application/json"             --data '{"message":"test"}')
+          echo "HTTP status: $code"
+          test "$code" = "401"
+
+      - name: Show server log on failure
+        if: failure()
+        run: cat server.log
