@@ -41,18 +41,18 @@ jobs:
           echo "=== NODE PROCESS ==="
           ps aux | grep '[n]ode server.js' || true
 
-          echo "=== PORT 3000 TEST ==="
-          curl -v http://127.0.0.1:3000/api/health || true
+          echo "=== PORT 8787 TEST ==="
+          curl -v http://127.0.0.1:8787/api/health || true
       - name: Health check
         run: |
           curl --fail --silent --show-error \
-            http://127.0.0.1:3000/api/health
+            http://127.0.0.1:8787/api/health
 
       - name: Test API authentication guard
         run: |
           code=$(curl -s -o /tmp/api-response.json -w "%{http_code}" \
             -X POST \
-            http://127.0.0.1:3000/api/chat \
+            http://127.0.0.1:8787/api/chat \
             -H "Content-Type: application/json" \
             --data '{"message":"test"}')
 
