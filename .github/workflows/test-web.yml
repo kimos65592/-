@@ -29,10 +29,18 @@ jobs:
           node -e "const fs=require('fs'); const s=fs.readFileSync('index.html','utf8'); const m=s.match(/<script[^>]*>([\\s\\S]*?)<\\/script>/g)||[]; for(const x of m){const c=x.replace(/^<script[^>]*>|<\\/script>$/g,''); if(c.trim()) new Function(c);}; console.log('Client JavaScript syntax OK')"
 
       - name: Start server
-        run: |
-          node server.js > server.log 2>&1 &
-          echo $! > server.pid
-          sleep 3
+  run: |
+    node server.js > server.log 2>&1 &
+    echo $! > server.pid
+    sleep 5
+
+    if ! kill -0 $(cat server.pid) 2>/dev/null; then
+      echo "Server failed to start."
+      cat server.log || true
+      exit 1
+    fi
+
+    echo "Server is running."
 
       - name: Health check
         run: curl --fail --silent --show-error http://127.0.0.1:3000/api/health
@@ -44,5 +52,10 @@ jobs:
           test "$code" = "401"
 
       - name: Show server log on failure
-        if: failure()
-        run: cat server.log
+  if: failure()
+  run: |
+    if [ -f server.log ]; then
+      cat server.log
+    else
+      echo "server.log was not created."
+    fi
