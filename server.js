@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PORT = Number(process.env.PORT || 8787);
-const OPENAI_URL = 'https://api.openai.com/v1/responses';
-const DEFAULT_MODEL = 'gpt-5.4-mini';
+const HF_URL = 'https://router.huggingface.co/v1/chat/completions';
+const DEFAULT_MODEL = 'openai/gpt-oss-120b:fastest';
 const MAX_BODY = 2 * 1024 * 1024;
 
 function sendJson(res, status, body) {
@@ -46,12 +46,14 @@ async function readJson(req) {
   });
 }
 
-async function openAIRequest(apiKey, payload, timeoutMs = 30000) {
+async function huggingFaceRequest(apiKey, payload, timeoutMs = 30000) {
   if (!apiKey) throw new Error('API_KEY_MISSING');
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
-    return await fetch(OPENAI_URL, {
+    return await fetch(HF_URL, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -61,7 +63,9 @@ async function openAIRequest(apiKey, payload, timeoutMs = 30000) {
       signal: controller.signal
     });
   } catch (err) {
-    if (err?.name === 'AbortError') throw new Error('REQUEST_TIMEOUT');
+    if (err?.name === 'AbortError') {
+      throw new Error('REQUEST_TIMEOUT');
+    }
     throw err;
   } finally {
     clearTimeout(timer);
@@ -85,30 +89,72 @@ function sseWrite(res, payload) {
 
 async function handleTest(req, res, body) {
   const apiKey = getApiKey(req, body);
-  const model = typeof body?.model === 'string' && body.model.trim() ? body.model.trim() : DEFAULT_MODEL;
-  if (!apiKey) return sendJson(res, 400, { ok: false, code: 'API_KEY_MISSING', message: 'أدخل مفتاح OpenAI API أولاً.' });
+
+  const model =
+    typeof body?.model === 'string' && body.model.trim()
+      ? body.model.trim()
+      : DEFAULT_MODEL;
+
+  if (!apiKey) {
+    return sendJson(res, 400, {
+      ok: false,
+      code: 'API_KEY_MISSING',
+      message: 'أدخل Hugging Face Token أولاً.'
+    });
+  }
 
   const started = Date.now();
+
   try {
-    const upstream = await openAIRequest(apiKey, {
+    const upstream = await huggingFaceRequest(apiKey, {
       model,
-      instructions: 'You are performing an API connectivity test. Reply with exactly: JARVIS API CONNECTED',
-      input: 'Connection test',
-      reasoning: { effort: 'none' },
-      store: false
-    }, 20000);
+      messages: [
+        {
+          role: 'user',
+          content: 'Reply with exactly: JARVIS HF CONNECTED'
+        }
+      ],
+      stream: false
+    }, 30000);
 
     const data = await upstream.json().catch(() => ({}));
+
     if (!upstream.ok) {
-      const upstreamMessage = data?.error?.message || `OpenAI HTTP ${upstream.status}`;
-      return sendJson(res, 502, {
+      return sendJson(res, upstream.status, {
         ok: false,
-        code: 'OPENAI_ERROR',
+        code: data?.error?.code || 'HF_ERROR',
         status: upstream.status,
-        message: upstreamMessage,
+        message:
+          data?.error?.message ||
+          `Hugging Face HTTP ${upstream.status}`,
         latencyMs: Date.now() - started
       });
     }
+
+    const responseText =
+      data?.choices?.[0]?.message?.content || '';
+
+    return sendJson(res, 200, {
+      ok: true,
+      model,
+      latencyMs: Date.now() - started,
+      response: responseText
+    });
+
+  } catch (err) {
+    const code = err?.message || 'REQUEST_FAILED';
+
+    return sendJson(res, 502, {
+      ok: false,
+      code,
+      message:
+        code === 'REQUEST_TIMEOUT'
+          ? 'انتهت مهلة الاتصال بـ Hugging Face.'
+          : 'تعذر الاتصال بخدمة Hugging Face.',
+      latencyMs: Date.now() - started
+    });
+  }
+}
 
     return sendJson(res, 200, {
       ok: true,
@@ -183,12 +229,37 @@ async function handleVision(req, res, body) {
 
 async function handleChat(req, res, body) {
   const apiKey = getApiKey(req, body);
-  const model = typeof body?.model === 'string' && body.model.trim() ? body.model.trim() : DEFAULT_MODEL;
-  const instructions = typeof body?.instructions === 'string' ? body.instructions : '';
-  const input = typeof body?.input === 'string' ? body.input : '';
 
-  if (!apiKey) return sendJson(res, 400, { ok: false, code: 'API_KEY_MISSING', message: 'أدخل مفتاح OpenAI API أولاً.' });
-  if (!input.trim()) return sendJson(res, 400, { ok: false, code: 'INPUT_MISSING', message: 'لم يصل نص الرسالة.' });
+  const model =
+    typeof body?.model === 'string' && body.model.trim()
+      ? body.model.trim()
+      : DEFAULT_MODEL;
+
+  const instructions =
+    typeof body?.instructions === 'string'
+      ? body.instructions
+      : '';
+
+  const input =
+    typeof body?.input === 'string'
+      ? body.input
+      : '';
+
+  if (!apiKey) {
+    return sendJson(res, 400, {
+      ok: false,
+      code: 'API_KEY_MISSING',
+      message: 'أدخل Hugging Face Token أولاً.'
+    });
+  }
+
+  if (!input.trim()) {
+    return sendJson(res, 400, {
+      ok: false,
+      code: 'INPUT_MISSING',
+      message: 'لم يصل نص الرسالة.'
+    });
+  }
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
@@ -199,10 +270,25 @@ async function handleChat(req, res, body) {
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 90000);
+
   req.on('close', () => controller.abort());
 
   try {
-    const upstream = await fetch(OPENAI_URL, {
+    const messages = [];
+
+    if (instructions.trim()) {
+      messages.push({
+        role: 'system',
+        content: instructions
+      });
+    }
+
+    messages.push({
+      role: 'user',
+      content: input
+    });
+
+    const upstream = await fetch(HF_URL, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -210,23 +296,24 @@ async function handleChat(req, res, body) {
       },
       body: JSON.stringify({
         model,
-        instructions,
-        input,
-        reasoning: { effort: 'none' },
-        stream: true,
-        store: false
+        messages,
+        stream: true
       }),
       signal: controller.signal
     });
 
     if (!upstream.ok || !upstream.body) {
       const errData = await upstream.json().catch(() => ({}));
+
       sseWrite(res, {
         type: 'error',
-        code: 'OPENAI_ERROR',
+        code: errData?.error?.code || 'HF_ERROR',
         status: upstream.status,
-        message: errData?.error?.message || `OpenAI HTTP ${upstream.status}`
+        message:
+          errData?.error?.message ||
+          `Hugging Face HTTP ${upstream.status}`
       });
+
       res.end();
       return;
     }
@@ -237,41 +324,79 @@ async function handleChat(req, res, body) {
 
     while (true) {
       const { done, value } = await reader.read();
+
       if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+
+      buffer += decoder.decode(value, {
+        stream: true
+      });
+
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
 
       for (const rawLine of lines) {
         const line = rawLine.trimEnd();
+
         if (!line.startsWith('data:')) continue;
+
         const raw = line.slice(5).trim();
+
         if (!raw || raw === '[DONE]') continue;
 
         try {
           const event = JSON.parse(raw);
-          if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
-            sseWrite(res, { type: 'delta', text: event.delta });
-          } else if (event.type === 'response.completed') {
-            sseWrite(res, { type: 'completed' });
-          } else if (event.type === 'error' || event.type === 'response.failed') {
-            sseWrite(res, { type: 'error', code: 'MODEL_ERROR', message: event.message || event.error?.message || 'فشل توليد الرد.' });
+
+          const delta =
+            event?.choices?.[0]?.delta?.content;
+
+          if (typeof delta === 'string' && delta) {
+            sseWrite(res, {
+              type: 'delta',
+              text: delta
+            });
           }
+
+          if (event?.error) {
+            sseWrite(res, {
+              type: 'error',
+              code: event.error.code || 'MODEL_ERROR',
+              message:
+                event.error.message ||
+                'فشل توليد الرد.'
+            });
+          }
+
         } catch {
-          // Ignore malformed SSE fragments; stream continues.
+          // Ignore incomplete SSE fragments.
         }
       }
     }
 
-    sseWrite(res, { type: 'done' });
+    sseWrite(res, {
+      type: 'completed'
+    });
+
+    sseWrite(res, {
+      type: 'done'
+    });
+
     res.end();
+
   } catch (err) {
     sseWrite(res, {
       type: 'error',
-      code: err?.name === 'AbortError' ? 'REQUEST_TIMEOUT' : 'REQUEST_FAILED',
-      message: err?.name === 'AbortError' ? 'انتهت مهلة الرد أو تم إلغاء الطلب.' : 'فقد الاتصال بخدمة OpenAI.'
+      code:
+        err?.name === 'AbortError'
+          ? 'REQUEST_TIMEOUT'
+          : 'REQUEST_FAILED',
+      message:
+        err?.name === 'AbortError'
+          ? 'انتهت مهلة الرد أو تم إلغاء الطلب.'
+          : 'فقد الاتصال بخدمة Hugging Face.'
     });
+
     res.end();
+
   } finally {
     clearTimeout(timeout);
   }
