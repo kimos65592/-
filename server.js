@@ -11,25 +11,83 @@ const PORT = Number(process.env.PORT || 8787);
 const HF_URL =
   'https://router.huggingface.co/v1/chat/completions';
 
+// ============================================================
+// Hugging Face Models
+// ============================================================
+
+const MODEL_ALIASES = Object.freeze({
+  default:
+    'openai/gpt-oss-120b:fastest',
+
+  'gpt-oss':
+    'openai/gpt-oss-120b:fastest',
+
+  'deepseek-r1':
+    'deepseek-ai/DeepSeek-R1:fastest',
+
+  llama:
+    'meta-llama/Llama-3.1-8B-Instruct:fastest',
+
+  glm:
+    'zai-org/GLM-5.3:fastest',
+
+  vision:
+    'zai-org/GLM-5.3-Flash:baseten'
+});
+
 const DEFAULT_MODEL =
-  'openai/gpt-oss-120b:fastest';
+  MODEL_ALIASES.default;
+
+const VISION_MODEL =
+  MODEL_ALIASES.vision;
+
+// ============================================================
+// Limits
+// ============================================================
 
 const MAX_BODY =
-  2 * 1024 * 1024;
+  8 * 1024 * 1024;
+
+const TEST_TIMEOUT_MS =
+  30000;
+
+const CHAT_TIMEOUT_MS =
+  120000;
+
+const VISION_TIMEOUT_MS =
+  60000;
 
 
 // ============================================================
 // JSON RESPONSE
 // ============================================================
 
-function sendJson(res, status, body) {
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store',
-    'X-Content-Type-Options': 'nosniff'
-  });
+function sendJson(
+  res,
+  status,
+  body
+) {
+  if (res.headersSent) {
+    return;
+  }
 
-  res.end(JSON.stringify(body));
+  res.writeHead(
+    status,
+    {
+      'Content-Type':
+        'application/json; charset=utf-8',
+
+      'Cache-Control':
+        'no-store',
+
+      'X-Content-Type-Options':
+        'nosniff'
+    }
+  );
+
+  res.end(
+    JSON.stringify(body)
+  );
 }
 
 
@@ -37,23 +95,43 @@ function sendJson(res, status, body) {
 // API KEY
 // ============================================================
 
-function getApiKey(req, body) {
-  const header =
-    req.headers['authorization'];
+function getApiKey(
+  req,
+  body = {}
+) {
+  const authorization =
+    req.headers.authorization;
 
   if (
-    typeof header === 'string' &&
-    /^Bearer\s+\S+$/i.test(header)
+    typeof authorization ===
+    'string'
   ) {
-    return header
-      .replace(/^Bearer\s+/i, '')
-      .trim();
+    const match =
+      authorization.match(
+        /^Bearer\s+(.+)$/i
+      );
+
+    if (match?.[1]) {
+      return match[1].trim();
+    }
   }
 
   if (
-    typeof body?.apiKey === 'string'
+    typeof body.apiKey ===
+    'string' &&
+    body.apiKey.trim()
   ) {
     return body.apiKey.trim();
+  }
+
+  // Optional server environment token.
+  // Runtime token still has priority.
+  if (
+    typeof process.env.HF_TOKEN ===
+    'string' &&
+    process.env.HF_TOKEN.trim()
+  ) {
+    return process.env.HF_TOKEN.trim();
   }
 
   return '';
@@ -61,62 +139,170 @@ function getApiKey(req, body) {
 
 
 // ============================================================
-// READ JSON
+// MODEL NORMALIZATION
 // ============================================================
 
-async function readJson(req) {
-  return await new Promise((resolve, reject) => {
-    let data = '';
+function normalizeModel(
+  value,
+  options = {}
+) {
+  const {
+    vision = false
+  } = options;
 
-    req.on('data', chunk => {
-      data += chunk;
+  const raw =
+    typeof value ===
+    'string'
+      ? value.trim()
+      : '';
 
-      if (
-        Buffer.byteLength(data, 'utf8') >
-        MAX_BODY
-      ) {
-        reject(
-          new Error('BODY_TOO_LARGE')
-        );
+  if (!raw) {
+    return vision
+      ? VISION_MODEL
+      : DEFAULT_MODEL;
+  }
 
-        req.destroy();
-      }
-    });
+  const alias =
+    MODEL_ALIASES[
+      raw.toLowerCase()
+    ];
 
-    req.on('end', () => {
-      try {
-        resolve(
-          data
-            ? JSON.parse(data)
-            : {}
-        );
-      } catch {
-        reject(
-          new Error('INVALID_JSON')
-        );
-      }
-    });
+  if (alias) {
+    return alias;
+  }
 
-    req.on('error', reject);
-  });
+  // Existing JARVIS page still sends
+  // its old OpenAI model name.
+  //
+  // Example:
+  // gpt-5.4-mini
+  //
+  // Automatically translate it to
+  // the Hugging Face default.
+
+  if (
+    /^(gpt-|o[1-9]|o[34]-|chatgpt-)/i
+      .test(raw)
+  ) {
+    return vision
+      ? VISION_MODEL
+      : DEFAULT_MODEL;
+  }
+
+  // Legacy Gemini names.
+  if (
+    /^gemini[-_]/i.test(raw)
+  ) {
+    return vision
+      ? VISION_MODEL
+      : DEFAULT_MODEL;
+  }
+
+  // A real Hugging Face model ID
+  // normally contains "/".
+  //
+  // Example:
+  // openai/gpt-oss-120b:fastest
+  // deepseek-ai/DeepSeek-R1:fastest
+
+  if (
+    raw.includes('/')
+  ) {
+    return raw;
+  }
+
+  return vision
+    ? VISION_MODEL
+    : DEFAULT_MODEL;
 }
 
 
 // ============================================================
-// HUGGING FACE REQUEST
+// READ JSON BODY
 // ============================================================
 
-async function huggingFaceRequest(
-  apiKey,
-  payload,
-  timeoutMs = 30000
-) {
-  if (!apiKey) {
-    throw new Error(
-      'API_KEY_MISSING'
-    );
-  }
+async function readJson(req) {
+  return await new Promise(
+    (resolve, reject) => {
+      let body = '';
+      let settled = false;
 
+      const fail =
+        (error) => {
+          if (settled) {
+            return;
+          }
+
+          settled = true;
+          reject(error);
+        };
+
+      req.on(
+        'data',
+        (chunk) => {
+          body += chunk;
+
+          if (
+            Buffer.byteLength(
+              body,
+              'utf8'
+            ) > MAX_BODY
+          ) {
+            fail(
+              new Error(
+                'BODY_TOO_LARGE'
+              )
+            );
+
+            req.destroy();
+          }
+        }
+      );
+
+      req.on(
+        'end',
+        () => {
+          if (settled) {
+            return;
+          }
+
+          settled = true;
+
+          if (!body.trim()) {
+            resolve({});
+            return;
+          }
+
+          try {
+            resolve(
+              JSON.parse(body)
+            );
+          } catch {
+            reject(
+              new Error(
+                'INVALID_JSON'
+              )
+            );
+          }
+        }
+      );
+
+      req.on(
+        'error',
+        fail
+      );
+    }
+  );
+}
+
+
+// ============================================================
+// ABORT CONTROLLER
+// ============================================================
+
+function makeController(
+  timeoutMs
+) {
   const controller =
     new AbortController();
 
@@ -126,33 +312,66 @@ async function huggingFaceRequest(
       timeoutMs
     );
 
+  return {
+    controller,
+    timer
+  };
+}
+
+
+// ============================================================
+// HUGGING FACE REQUEST
+// ============================================================
+
+async function hfRequest(
+  apiKey,
+  payload,
+  timeoutMs
+) {
+  if (!apiKey) {
+    throw new Error(
+      'API_KEY_MISSING'
+    );
+  }
+
+  const {
+    controller,
+    timer
+  } =
+    makeController(
+      timeoutMs
+    );
+
   try {
     return await fetch(
       HF_URL,
       {
-        method: 'POST',
+        method:
+          'POST',
 
         headers: {
-          'Authorization':
+          Authorization:
             `Bearer ${apiKey}`,
 
           'Content-Type':
+            'application/json',
+
+          Accept:
             'application/json'
         },
 
-        body: JSON.stringify(
-          payload
-        ),
+        body:
+          JSON.stringify(
+            payload
+          ),
 
         signal:
           controller.signal
       }
     );
-
-  } catch (err) {
-
+  } catch (error) {
     if (
-      err?.name ===
+      error?.name ===
       'AbortError'
     ) {
       throw new Error(
@@ -160,12 +379,133 @@ async function huggingFaceRequest(
       );
     }
 
-    throw err;
-
+    throw error;
   } finally {
-
     clearTimeout(timer);
   }
+}
+
+
+// ============================================================
+// READ HF RESPONSE
+// ============================================================
+
+async function readUpstreamBody(
+  response
+) {
+  const text =
+    await response
+      .text()
+      .catch(
+        () => ''
+      );
+
+  let data = null;
+
+  if (text) {
+    try {
+      data =
+        JSON.parse(text);
+    } catch {
+      data = null;
+    }
+  }
+
+  return {
+    text,
+    data
+  };
+}
+
+
+// ============================================================
+// EXTRACT ERROR
+// ============================================================
+
+function upstreamErrorMessage(
+  data,
+  text,
+  fallback
+) {
+  if (
+    typeof data?.error ===
+      'string' &&
+    data.error.trim()
+  ) {
+    return data.error.trim();
+  }
+
+  if (
+    typeof data?.error?.message ===
+      'string' &&
+    data.error.message.trim()
+  ) {
+    return data.error.message.trim();
+  }
+
+  if (
+    typeof data?.message ===
+      'string' &&
+    data.message.trim()
+  ) {
+    return data.message.trim();
+  }
+
+  if (
+    text &&
+    text.trim()
+  ) {
+    return text
+      .trim()
+      .slice(0, 1000);
+  }
+
+  return fallback;
+}
+
+
+// ============================================================
+// EXTRACT CHAT TEXT
+// ============================================================
+
+function extractChatText(
+  data
+) {
+  const content =
+    data
+      ?.choices?.[0]
+      ?.message?.content;
+
+  if (
+    typeof content ===
+    'string'
+  ) {
+    return content;
+  }
+
+  if (
+    Array.isArray(content)
+  ) {
+    return content
+      .map(
+        (part) => {
+          if (
+            typeof part ===
+            'string'
+          ) {
+            return part;
+          }
+
+          return typeof part?.text ===
+            'string'
+            ? part.text
+            : '';
+        }
+      )
+      .join('');
+  }
+
+  return '';
 }
 
 
@@ -173,12 +513,44 @@ async function huggingFaceRequest(
 // SSE
 // ============================================================
 
-function sseWrite(
+function sse(
   res,
   payload
 ) {
+  if (
+    res.writableEnded
+  ) {
+    return;
+  }
+
   res.write(
     `data: ${JSON.stringify(payload)}\n\n`
+  );
+}
+
+
+// ============================================================
+// OPEN SSE
+// ============================================================
+
+function openSse(
+  res
+) {
+  res.writeHead(
+    200,
+    {
+      'Content-Type':
+        'text/event-stream; charset=utf-8',
+
+      'Cache-Control':
+        'no-cache, no-store, must-revalidate',
+
+      Connection:
+        'keep-alive',
+
+      'X-Accel-Buffering':
+        'no'
+    }
   );
 }
 
@@ -193,13 +565,10 @@ async function handleTest(
   body
 ) {
   const apiKey =
-    getApiKey(req, body);
-
-  const model =
-    typeof body?.model === 'string' &&
-    body.model.trim()
-      ? body.model.trim()
-      : DEFAULT_MODEL;
+    getApiKey(
+      req,
+      body
+    );
 
   if (!apiKey) {
     return sendJson(
@@ -217,57 +586,77 @@ async function handleTest(
     );
   }
 
+  const model =
+    normalizeModel(
+      body?.model
+    );
+
   const started =
     Date.now();
 
   try {
-
-    const upstream =
-      await huggingFaceRequest(
+    const response =
+      await hfRequest(
         apiKey,
         {
           model,
 
           messages: [
             {
-              role: 'user',
+              role:
+                'user',
 
               content:
                 'Reply with exactly: JARVIS HF CONNECTED'
             }
           ],
 
-          stream: false
+          stream:
+            false,
+
+          max_tokens:
+            32
         },
 
-        30000
+        TEST_TIMEOUT_MS
       );
 
+    const {
+      text,
+      data
+    } =
+      await readUpstreamBody(
+        response
+      );
 
-    const data =
-      await upstream
-        .json()
-        .catch(() => ({}));
-
-
-    if (!upstream.ok) {
-
+    if (
+      !response.ok
+    ) {
       return sendJson(
         res,
-        upstream.status,
+        response.status,
         {
           ok: false,
 
+          provider:
+            'huggingface',
+
           code:
             data?.error?.code ||
+            data?.code ||
             'HF_ERROR',
 
           status:
-            upstream.status,
+            response.status,
+
+          model,
 
           message:
-            data?.error?.message ||
-            `Hugging Face HTTP ${upstream.status}`,
+            upstreamErrorMessage(
+              data,
+              text,
+              `Hugging Face HTTP ${response.status}`
+            ),
 
           latencyMs:
             Date.now() -
@@ -276,19 +665,14 @@ async function handleTest(
       );
     }
 
-
-    const responseText =
-      data
-        ?.choices?.[0]
-        ?.message?.content ||
-      '';
-
-
     return sendJson(
       res,
       200,
       {
         ok: true,
+
+        provider:
+          'huggingface',
 
         model,
 
@@ -297,22 +681,33 @@ async function handleTest(
           started,
 
         response:
-          responseText
+          extractChatText(
+            data
+          ),
+
+        requestId:
+          response
+            .headers
+            .get(
+              'x-request-id'
+            ) ||
+          null
       }
     );
 
-  } catch (err) {
-
+  } catch (error) {
     const code =
-      err?.message ||
+      error?.message ||
       'REQUEST_FAILED';
-
 
     return sendJson(
       res,
       502,
       {
         ok: false,
+
+        provider:
+          'huggingface',
 
         code,
 
@@ -334,36 +729,6 @@ async function handleTest(
 
 
 // ============================================================
-// VISION
-// ============================================================
-//
-// Vision is intentionally disabled here because support for
-// image input depends on the selected Hugging Face model/provider.
-// This prevents the old OpenAI code from being called.
-// ============================================================
-
-async function handleVision(
-  req,
-  res,
-  body
-) {
-  return sendJson(
-    res,
-    501,
-    {
-      ok: false,
-
-      code:
-        'VISION_NOT_CONFIGURED',
-
-      message:
-        'تحليل الصور عبر Hugging Face لم يتم تفعيله بعد.'
-    }
-  );
-}
-
-
-// ============================================================
 // CHAT
 // ============================================================
 
@@ -373,30 +738,33 @@ async function handleChat(
   body
 ) {
   const apiKey =
-    getApiKey(req, body);
-
-
-  const model =
-    typeof body?.model === 'string' &&
-    body.model.trim()
-      ? body.model.trim()
-      : DEFAULT_MODEL;
-
-
-  const instructions =
-    typeof body?.instructions === 'string'
-      ? body.instructions
-      : '';
-
+    getApiKey(
+      req,
+      body
+    );
 
   const input =
-    typeof body?.input === 'string'
-      ? body.input
+    typeof body?.input ===
+      'string'
+
+      ? body.input.trim()
+
+      : typeof body?.message ===
+          'string'
+
+        ? body.message.trim()
+
+        : '';
+
+  const instructions =
+    typeof body?.instructions ===
+      'string'
+
+      ? body.instructions.trim()
+
       : '';
 
-
   if (!apiKey) {
-
     return sendJson(
       res,
       400,
@@ -412,9 +780,7 @@ async function handleChat(
     );
   }
 
-
-  if (!input.trim()) {
-
+  if (!input) {
     return sendJson(
       res,
       400,
@@ -430,208 +796,191 @@ async function handleChat(
     );
   }
 
-
-  // ----------------------------------------------------------
-  // SSE HEADERS
-  // ----------------------------------------------------------
-
-  res.writeHead(
-    200,
-    {
-      'Content-Type':
-        'text/event-stream; charset=utf-8',
-
-      'Cache-Control':
-        'no-cache, no-store, must-revalidate',
-
-      'Connection':
-        'keep-alive',
-
-      'X-Accel-Buffering':
-        'no'
-    }
-  );
-
-
-  const controller =
-    new AbortController();
-
-
-  const timeout =
-    setTimeout(
-      () => controller.abort(),
-      90000
+  const model =
+    normalizeModel(
+      body?.model
     );
 
+  const messages = [];
 
-  req.on(
-    'close',
-    () => {
-      controller.abort();
-    }
-  );
-
-
-  try {
-
-    // --------------------------------------------------------
-    // BUILD MESSAGES
-    // --------------------------------------------------------
-
-    const messages = [];
-
-
-    if (instructions.trim()) {
-
-      messages.push(
-        {
-          role: 'system',
-
-          content:
-            instructions
-        }
-      );
-    }
-
-
+  if (
+    instructions
+  ) {
     messages.push(
       {
-        role: 'user',
+        role:
+          'system',
 
         content:
-          input
+          instructions
       }
     );
+  }
 
+  messages.push(
+    {
+      role:
+        'user',
 
-    // --------------------------------------------------------
-    // HUGGING FACE STREAM
-    // --------------------------------------------------------
+      content:
+        input
+    }
+  );
 
+  openSse(res);
+
+  const {
+    controller,
+    timer
+  } =
+    makeController(
+      CHAT_TIMEOUT_MS
+    );
+
+  const abortUpstream =
+    () => {
+      if (
+        !res.writableEnded
+      ) {
+        controller.abort();
+      }
+    };
+
+  res.once(
+    'close',
+    abortUpstream
+  );
+
+  try {
     const upstream =
       await fetch(
         HF_URL,
         {
-          method: 'POST',
+          method:
+            'POST',
 
           headers: {
-            'Authorization':
+            Authorization:
               `Bearer ${apiKey}`,
 
             'Content-Type':
-              'application/json'
+              'application/json',
+
+            Accept:
+              'text/event-stream'
           },
 
-          body: JSON.stringify(
-            {
-              model,
+          body:
+            JSON.stringify(
+              {
+                model,
 
-              messages,
+                messages,
 
-              stream: true
-            }
-          ),
+                stream:
+                  true
+              }
+            ),
 
           signal:
             controller.signal
         }
       );
 
-
-    // --------------------------------------------------------
-    // ERROR FROM HUGGING FACE
-    // --------------------------------------------------------
-
     if (
       !upstream.ok ||
       !upstream.body
     ) {
+      const {
+        text,
+        data
+      } =
+        await readUpstreamBody(
+          upstream
+        );
 
-      const errorData =
-        await upstream
-          .json()
-          .catch(() => ({}));
-
-
-      sseWrite(
+      sse(
         res,
         {
           type:
             'error',
 
           code:
-            errorData?.error?.code ||
+            data?.error?.code ||
+            data?.code ||
             'HF_ERROR',
 
           status:
             upstream.status,
 
           message:
-            errorData?.error?.message ||
-            `Hugging Face HTTP ${upstream.status}`
+            upstreamErrorMessage(
+              data,
+              text,
+              `Hugging Face HTTP ${upstream.status}`
+            )
         }
       );
 
+      sse(
+        res,
+        {
+          type:
+            'done'
+        }
+      );
 
       res.end();
 
       return;
     }
 
-
-    // --------------------------------------------------------
-    // READ STREAM
-    // --------------------------------------------------------
-
     const reader =
-      upstream.body.getReader();
-
+      upstream
+        .body
+        .getReader();
 
     const decoder =
-      new TextDecoder();
-
+      new TextDecoder(
+        'utf-8'
+      );
 
     let buffer = '';
 
-
     while (true) {
-
       const {
         done,
         value
       } =
         await reader.read();
 
-
       if (done) {
         break;
       }
-
 
       buffer +=
         decoder.decode(
           value,
           {
-            stream: true
+            stream:
+              true
           }
         );
 
-
       const lines =
-        buffer.split('\n');
-
+        buffer.split(
+          /\r?\n/
+        );
 
       buffer =
-        lines.pop() || '';
-
+        lines.pop() ||
+        '';
 
       for (
         const rawLine of lines
       ) {
-
         const line =
-          rawLine.trimEnd();
-
+          rawLine.trim();
 
         if (
           !line.startsWith(
@@ -641,100 +990,102 @@ async function handleChat(
           continue;
         }
 
-
         const raw =
           line
             .slice(5)
             .trim();
 
+        if (!raw) {
+          continue;
+        }
 
         if (
-          !raw ||
-          raw === '[DONE]'
+          raw ===
+          '[DONE]'
         ) {
           continue;
         }
 
+        let event;
 
         try {
-
-          const event =
-            JSON.parse(raw);
-
-
-          // ------------------------------------------------
-          // TEXT DELTA
-          // ------------------------------------------------
-
-          const delta =
-            event
-              ?.choices?.[0]
-              ?.delta?.content;
-
-
-          if (
-            typeof delta ===
-              'string' &&
-            delta
-          ) {
-
-            sseWrite(
-              res,
-              {
-                type:
-                  'delta',
-
-                text:
-                  delta
-              }
+          event =
+            JSON.parse(
+              raw
             );
-          }
-
-
-          // ------------------------------------------------
-          // STREAM ERROR
-          // ------------------------------------------------
-
-          if (
-            event?.error
-          ) {
-
-            sseWrite(
-              res,
-              {
-                type:
-                  'error',
-
-                code:
-                  event
-                    .error
-                    .code ||
-                  'MODEL_ERROR',
-
-                message:
-                  event
-                    .error
-                    .message ||
-                  'فشل توليد الرد.'
-              }
-            );
-          }
-
-
         } catch {
+          continue;
+        }
 
-          // Ignore incomplete SSE fragments.
+        if (
+          event?.error
+        ) {
+          const message =
+            upstreamErrorMessage(
+              event,
+              '',
+              'فشل توليد الرد.'
+            );
 
+          sse(
+            res,
+            {
+              type:
+                'error',
+
+              code:
+                event
+                  ?.error
+                  ?.code ||
+                'MODEL_ERROR',
+
+              message
+            }
+          );
+
+          continue;
+        }
+
+        const delta =
+          event
+            ?.choices?.[0]
+            ?.delta?.content;
+
+        if (
+          typeof delta ===
+            'string' &&
+          delta
+        ) {
+
+          // Custom JARVIS event.
+          sse(
+            res,
+            {
+              type:
+                'delta',
+
+              text:
+                delta
+            }
+          );
+
+          // OpenAI-compatible event shape
+          // for compatibility with the
+          // existing JARVIS parser.
+          sse(
+            res,
+            {
+              type:
+                'response.output_text.delta',
+
+              delta
+            }
+          );
         }
       }
     }
 
-
-    // --------------------------------------------------------
-    // COMPLETE
-    // --------------------------------------------------------
-
-    sseWrite(
+    sse(
       res,
       {
         type:
@@ -742,8 +1093,15 @@ async function handleChat(
       }
     );
 
+    sse(
+      res,
+      {
+        type:
+          'response.completed'
+      }
+    );
 
-    sseWrite(
+    sse(
       res,
       {
         type:
@@ -751,46 +1109,391 @@ async function handleChat(
       }
     );
 
-
     res.end();
 
+  } catch (error) {
 
-  } catch (err) {
+    const code =
+      error?.name ===
+      'AbortError'
 
-    sseWrite(
-      res,
-      {
-        type:
-          'error',
+        ? 'REQUEST_TIMEOUT'
 
-        code:
-          err?.name ===
-          'AbortError'
+        : error?.message ||
+          'REQUEST_FAILED';
 
-            ? 'REQUEST_TIMEOUT'
+    if (
+      !res.writableEnded
+    ) {
 
-            : 'REQUEST_FAILED',
+      sse(
+        res,
+        {
+          type:
+            'error',
 
-        message:
-          err?.name ===
-          'AbortError'
+          code,
 
-            ? 'انتهت مهلة الرد أو تم إلغاء الطلب.'
+          message:
+            code ===
+            'REQUEST_TIMEOUT'
 
-            : 'فقد الاتصال بخدمة Hugging Face.'
-      }
-    );
+              ? 'انتهت مهلة الرد أو تم إلغاء الطلب.'
 
+              : 'فقد الاتصال بخدمة Hugging Face.'
+        }
+      );
 
-    res.end();
+      sse(
+        res,
+        {
+          type:
+            'done'
+        }
+      );
 
+      res.end();
+    }
 
   } finally {
 
     clearTimeout(
-      timeout
+      timer
+    );
+
+    res.removeListener(
+      'close',
+      abortUpstream
     );
   }
+}
+
+
+// ============================================================
+// IMAGE VALIDATION
+// ============================================================
+
+function validateImageDataUrl(
+  image
+) {
+  return (
+    typeof image ===
+      'string' &&
+
+    /^data:image\/(?:jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/i
+      .test(image)
+  );
+}
+
+
+// ============================================================
+// VISION
+// ============================================================
+
+async function handleVision(
+  req,
+  res,
+  body
+) {
+  const apiKey =
+    getApiKey(
+      req,
+      body
+    );
+
+  if (!apiKey) {
+    return sendJson(
+      res,
+      400,
+      {
+        ok: false,
+
+        code:
+          'API_KEY_MISSING',
+
+        message:
+          'أدخل Hugging Face Token أولاً.'
+      }
+    );
+  }
+
+  const image =
+    typeof body?.image ===
+      'string'
+
+      ? body.image.trim()
+
+      : '';
+
+  const prompt =
+    typeof body?.prompt ===
+        'string' &&
+      body.prompt.trim()
+
+      ? body.prompt.trim()
+
+      : 'صف ما تراه في الصورة باختصار وبدقة.';
+
+  if (
+    !validateImageDataUrl(
+      image
+    )
+  ) {
+    return sendJson(
+      res,
+      400,
+      {
+        ok: false,
+
+        code:
+          'IMAGE_INVALID',
+
+        message:
+          'صيغة الصورة غير صالحة. استخدم JPEG أو PNG أو WEBP بصيغة base64 data URL.'
+      }
+    );
+  }
+
+  const model =
+    normalizeModel(
+      body?.model,
+      {
+        vision:
+          true
+      }
+    );
+
+  const started =
+    Date.now();
+
+  try {
+
+    const response =
+      await hfRequest(
+        apiKey,
+        {
+          model,
+
+          messages: [
+            {
+              role:
+                'user',
+
+              content: [
+                {
+                  type:
+                    'text',
+
+                  text:
+                    prompt
+                },
+
+                {
+                  type:
+                    'image_url',
+
+                  image_url: {
+                    url:
+                      image
+                  }
+                }
+              ]
+            }
+          ],
+
+          stream:
+            false,
+
+          max_tokens:
+            512
+        },
+
+        VISION_TIMEOUT_MS
+      );
+
+    const {
+      text,
+      data
+    } =
+      await readUpstreamBody(
+        response
+      );
+
+    if (
+      !response.ok
+    ) {
+      return sendJson(
+        res,
+        response.status,
+        {
+          ok: false,
+
+          provider:
+            'huggingface',
+
+          code:
+            data?.error?.code ||
+            data?.code ||
+            'HF_ERROR',
+
+          status:
+            response.status,
+
+          model,
+
+          message:
+            upstreamErrorMessage(
+              data,
+              text,
+              `Hugging Face HTTP ${response.status}`
+            ),
+
+          latencyMs:
+            Date.now() -
+            started
+        }
+      );
+    }
+
+    return sendJson(
+      res,
+      200,
+      {
+        ok: true,
+
+        provider:
+          'huggingface',
+
+        model,
+
+        latencyMs:
+          Date.now() -
+          started,
+
+        text:
+          extractChatText(
+            data
+          )
+      }
+    );
+
+  } catch (error) {
+
+    const code =
+      error?.message ||
+      'REQUEST_FAILED';
+
+    return sendJson(
+      res,
+      502,
+      {
+        ok: false,
+
+        provider:
+          'huggingface',
+
+        code,
+
+        message:
+          code ===
+          'REQUEST_TIMEOUT'
+
+            ? 'انتهت مهلة تحليل الصورة.'
+
+            : 'تعذر تحليل الصورة عبر Hugging Face.',
+
+        latencyMs:
+          Date.now() -
+          started
+      }
+    );
+  }
+}
+
+
+// ============================================================
+// SERVE INDEX
+// ============================================================
+
+function serveIndex(
+  res
+) {
+  const indexPath =
+    path.join(
+      __dirname,
+      'index.html'
+    );
+
+  if (
+    !fs.existsSync(
+      indexPath
+    )
+  ) {
+    return sendJson(
+      res,
+      500,
+      {
+        ok: false,
+
+        code:
+          'INDEX_NOT_FOUND',
+
+        message:
+          'index.html غير موجود.'
+      }
+    );
+  }
+
+  const html =
+    fs.readFileSync(
+      indexPath
+    );
+
+  res.writeHead(
+    200,
+    {
+      'Content-Type':
+        'text/html; charset=utf-8',
+
+      'Cache-Control':
+        'no-store',
+
+      'X-Content-Type-Options':
+        'nosniff'
+    }
+  );
+
+  res.end(
+    html
+  );
+}
+
+
+// ============================================================
+// MODELS ENDPOINT
+// ============================================================
+
+function serveModels(
+  res
+) {
+  return sendJson(
+    res,
+    200,
+    {
+      ok: true,
+
+      provider:
+        'huggingface',
+
+      models:
+        {
+          ...MODEL_ALIASES
+        },
+
+      endpoint:
+        HF_URL
+    }
+  );
 }
 
 
@@ -800,25 +1503,28 @@ async function handleChat(
 
 const server =
   http.createServer(
-    async (req, res) => {
+    async (
+      req,
+      res
+    ) => {
 
       const url =
         new URL(
-          req.url || '/',
+          req.url ||
+            '/',
           `http://${req.headers.host || 'localhost'}`
         );
 
 
-      // ======================================================
+      // --------------------------------------------------------
       // HEALTH
-      // ======================================================
+      // --------------------------------------------------------
 
       if (
         req.method === 'GET' &&
         url.pathname ===
           '/api/health'
       ) {
-
         return sendJson(
           res,
           200,
@@ -831,16 +1537,37 @@ const server =
             provider:
               'Hugging Face',
 
-            model:
-              DEFAULT_MODEL
+            endpoint:
+              HF_URL,
+
+            defaultModel:
+              DEFAULT_MODEL,
+
+            visionModel:
+              VISION_MODEL
           }
         );
       }
 
 
-      // ======================================================
+      // --------------------------------------------------------
+      // MODELS
+      // --------------------------------------------------------
+
+      if (
+        req.method === 'GET' &&
+        url.pathname ===
+          '/api/models'
+      ) {
+        return serveModels(
+          res
+        );
+      }
+
+
+      // --------------------------------------------------------
       // INDEX
-      // ======================================================
+      // --------------------------------------------------------
 
       if (
         req.method === 'GET' &&
@@ -850,37 +1577,15 @@ const server =
             '/index.html'
         )
       ) {
-
-        const html =
-          fs.readFileSync(
-            path.join(
-              __dirname,
-              'index.html'
-            )
-          );
-
-
-        res.writeHead(
-          200,
-          {
-            'Content-Type':
-              'text/html; charset=utf-8',
-
-            'Cache-Control':
-              'no-store'
-          }
-        );
-
-
-        return res.end(
-          html
+        return serveIndex(
+          res
         );
       }
 
 
-      // ======================================================
+      // --------------------------------------------------------
       // API ROUTES
-      // ======================================================
+      // --------------------------------------------------------
 
       if (
         req.method === 'POST' &&
@@ -899,14 +1604,15 @@ const server =
         try {
 
           const body =
-            await readJson(req);
+            await readJson(
+              req
+            );
 
 
           if (
             url.pathname ===
               '/api/test'
           ) {
-
             return await handleTest(
               req,
               res,
@@ -917,10 +1623,9 @@ const server =
 
           if (
             url.pathname ===
-              '/api/vision'
+              '/api/chat'
           ) {
-
-            return await handleVision(
+            return await handleChat(
               req,
               res,
               body
@@ -928,22 +1633,59 @@ const server =
           }
 
 
-          return await handleChat(
+          return await handleVision(
             req,
             res,
             body
           );
 
+        } catch (error) {
 
-        } catch (err) {
+          if (
+            res.headersSent
+          ) {
+            return;
+          }
 
-          const message =
-            err?.message ===
-              'BODY_TOO_LARGE'
 
-              ? 'الطلب كبير جدًا.'
+          if (
+            error?.message ===
+            'BODY_TOO_LARGE'
+          ) {
+            return sendJson(
+              res,
+              413,
+              {
+                ok: false,
 
-              : 'بيانات الطلب غير صالحة.';
+                code:
+                  'BODY_TOO_LARGE',
+
+                message:
+                  'الطلب كبير جدًا.'
+              }
+            );
+          }
+
+
+          if (
+            error?.message ===
+            'INVALID_JSON'
+          ) {
+            return sendJson(
+              res,
+              400,
+              {
+                ok: false,
+
+                code:
+                  'INVALID_JSON',
+
+                message:
+                  'بيانات الطلب ليست JSON صحيحة.'
+              }
+            );
+          }
 
 
           return sendJson(
@@ -953,43 +1695,46 @@ const server =
               ok: false,
 
               code:
-                err?.message ||
+                error?.message ||
                 'BAD_REQUEST',
 
-              message
+              message:
+                'تعذر قراءة الطلب.'
             }
           );
         }
       }
 
 
-      // ======================================================
+      // --------------------------------------------------------
       // 404
-      // ======================================================
+      // --------------------------------------------------------
 
-      res.writeHead(
+      return sendJson(
+        res,
         404,
         {
-          'Content-Type':
-            'text/plain; charset=utf-8'
+          ok: false,
+
+          code:
+            'NOT_FOUND',
+
+          message:
+            'المسار غير موجود.'
         }
       );
-
-
-      res.end(
-        'Not Found'
-      );
     }
-);
+  );
 
 
 // ============================================================
-// START SERVER
+// START
 // ============================================================
 
 server.listen(
   PORT,
   () => {
+
     console.log(
       `JARVIS Web AI Gateway running on http://localhost:${PORT}`
     );
@@ -1000,6 +1745,10 @@ server.listen(
 
     console.log(
       `Default model: ${DEFAULT_MODEL}`
+    );
+
+    console.log(
+      `Vision model: ${VISION_MODEL}`
     );
   }
 );
