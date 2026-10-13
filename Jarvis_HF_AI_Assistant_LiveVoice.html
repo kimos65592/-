@@ -1,0 +1,1688 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نظام جارفس (أحمد) - Groq & OpenAI AI Agent</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts (Cairo & Fira Code) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;800;900&family=Fira+Code:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Marked.js for Markdown -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Highlight.js for Code Highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/tokyo-night-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        jarvisCyan: '#00f2fe',
+                        jarvisBlue: '#4facfe',
+                        jarvisDark: '#050b14',
+                        jarvisCard: '#0d192b',
+                        jarvisSidebar: '#09111e',
+                        jarvisBorder: '#1c2d42',
+                        jarvisAccent: '#ffb703'
+                    },
+                    fontFamily: {
+                        sans: ['Cairo', 'sans-serif'],
+                        mono: ['Fira Code', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Cairo', sans-serif;
+            background-color: #050b14;
+            color: #e2e8f0;
+        }
+        /* Custom Scrollbars */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(9, 17, 30, 0.6); }
+        ::-webkit-scrollbar-thumb { background: #1c2d42; border-radius: 9999px; }
+        ::-webkit-scrollbar-thumb:hover { background: #00f2fe; }
+
+        /* JARVIS Futuristic Pulse Arc Reactor */
+        .jarvis-reactor {
+            position: relative;
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0,242,254,0.2) 0%, rgba(5,11,20,0.8) 70%);
+            border: 2px solid #00f2fe;
+            box-shadow: 0 0 20px rgba(0,242,254,0.4), inset 0 0 15px rgba(0,242,254,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+        .jarvis-reactor::before {
+            content: '';
+            position: absolute;
+            inset: -6px;
+            border-radius: 50%;
+            border: 2px dashed rgba(0, 242, 254, 0.6);
+            animation: rotate-reactor 12s linear infinite;
+        }
+        .jarvis-reactor.listening {
+            border-color: #ef4444;
+            box-shadow: 0 0 30px rgba(239, 68, 68, 0.7), inset 0 0 20px rgba(239, 68, 68, 0.5);
+        }
+        .jarvis-reactor.listening::before {
+            border-color: rgba(239, 68, 68, 0.8);
+            animation-duration: 4s;
+        }
+        .jarvis-reactor.speaking {
+            border-color: #ffb703;
+            box-shadow: 0 0 30px rgba(255, 183, 3, 0.8), inset 0 0 20px rgba(255, 183, 3, 0.5);
+        }
+
+        @keyframes rotate-reactor {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Markdown Custom Body */
+        .markdown-body p { margin-bottom: 0.75rem; line-height: 1.8; }
+        .markdown-body h1, .markdown-body h2, .markdown-body h3 { font-weight: 800; color: #00f2fe; margin-top: 1rem; margin-bottom: 0.5rem; }
+        .markdown-body pre { background: #070e1b; padding: 1rem; border-radius: 0.75rem; overflow-x: auto; margin-bottom: 1rem; direction: ltr; text-align: left; border: 1px solid #1c2d42; }
+        .markdown-body code:not(pre code) { background: rgba(0,242,254,0.1); color: #00f2fe; padding: 0.2rem 0.4rem; border-radius: 0.25rem; font-family: 'Fira Code', monospace; }
+        
+        .typing-cursor::after {
+            content: '▋';
+            display: inline-block;
+            margin-right: 2px;
+            color: #00f2fe;
+            animation: blink 1s infinite;
+        }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden bg-jarvisDark text-gray-100 select-none">
+
+    <!-- File Protocol Warning Bar -->
+    <div id="fileProtocolWarning" class="hidden bg-amber-500/20 border-b border-amber-500/40 px-4 py-2 text-xs text-amber-200 flex items-center justify-between z-50">
+        <div class="flex items-center gap-2">
+            <i class="fa-solid fa-triangle-exclamation text-amber-400 text-sm animate-pulse"></i>
+            <span><b>تنبيه التشغيل:</b> أنت تفتح الملف مباشرة (`file://`). الميكروفون قد يكون محدودة صلاحياته بالمتصفح. ينصح بفتح خادم محلي (`http://localhost`).</span>
+        </div>
+        <button onclick="this.parentElement.remove()" class="text-amber-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+
+    <div class="flex-1 flex overflow-hidden relative">
+        <!-- Mobile Backdrop -->
+        <div id="sidebarBackdrop" onclick="toggleSidebar()" class="fixed inset-0 bg-black/70 z-20 hidden lg:hidden backdrop-blur-md"></div>
+
+        <!-- Sidebar -->
+        <aside id="sidebar" class="fixed lg:static inset-y-0 right-0 z-30 w-80 bg-jarvisSidebar border-l border-jarvisBorder flex flex-col transform translate-x-full lg:translate-x-0 transition-transform duration-300 ease-in-out">
+            <!-- Header -->
+            <div class="p-4 border-b border-jarvisBorder flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center text-slate-950 font-black text-xl shadow-lg shadow-cyan-500/20">
+                        <i class="fa-solid fa-bolt"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-extrabold text-base text-white tracking-wide">JARVIS (Groq)</h1>
+                        <p class="text-[11px] text-cyan-400 font-semibold">المساعد السريع - Groq & OpenAI</p>
+                    </div>
+                </div>
+                <button onclick="toggleSidebar()" class="lg:hidden text-gray-400 hover:text-white">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Hotword & Microphone Control Panel -->
+            <div class="p-3 bg-jarvisCard/60 border-b border-jarvisBorder space-y-2">
+                <div class="flex items-center justify-between text-xs">
+                    <span class="text-gray-300 font-semibold flex items-center gap-1.5">
+                        <i class="fa-solid fa-ear-listen text-cyan-400"></i> الاستماع للكلمة المفتاحية:
+                    </span>
+                    <span class="text-cyan-400 font-bold font-mono">"أحمد"</span>
+                </div>
+                
+                <button id="hotwordToggleBtn" onclick="toggleHotwordListener()" class="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs shadow-md transition-all active:scale-95 cursor-pointer">
+                    <i class="fa-solid fa-power-off text-sm" id="hotwordPowerIcon"></i>
+                    <span id="hotwordBtnText">تفعيل الاستماع المستمر (24/7)</span>
+                </button>
+
+                <div class="flex justify-between items-center text-[10px] text-gray-400 px-1 pt-1">
+                    <span>الحالة: <strong id="hotwordStatusText" class="text-gray-500">متوقف</strong></span>
+                    <span class="flex items-center gap-1"><i class="fa-solid fa-shield-halved text-emerald-400"></i> خصوصية كاملة</span>
+                </div>
+            </div>
+
+            <!-- Action Controls -->
+            <div class="p-3">
+                <button onclick="createNewChat()" class="w-full flex items-center justify-center gap-2 bg-jarvisCard hover:bg-jarvisBorder text-gray-200 hover:text-white font-semibold py-2.5 px-4 rounded-xl border border-jarvisBorder transition-all duration-200 active:scale-95 cursor-pointer">
+                    <i class="fa-solid fa-plus text-cyan-400"></i>
+                    <span>محادثة جديدة</span>
+                </button>
+            </div>
+
+            <!-- Chat History -->
+            <div class="flex-1 overflow-y-auto px-3 py-1 space-y-1" id="chatHistoryList"></div>
+
+            <!-- Persistent Memory & Tools Bar -->
+            <div class="p-3 border-t border-jarvisBorder bg-jarvisDark/80 space-y-2">
+                <button onclick="openMemoryModal()" class="w-full flex items-center justify-between p-2.5 rounded-xl bg-jarvisCard/80 hover:bg-jarvisCard text-gray-300 hover:text-white border border-jarvisBorder text-xs transition-colors cursor-pointer">
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-brain text-amber-400"></i>
+                        <span class="font-bold">الذاكرة الدائمة والتعلم الذاتي</span>
+                    </div>
+                    <span id="memoryCountBadge" class="bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-mono text-[10px]">0 حقائق</span>
+                </button>
+
+                <button onclick="openSettingsModal()" class="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-jarvisCard text-gray-300 hover:text-white border border-transparent hover:border-jarvisBorder text-xs transition-colors cursor-pointer">
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-sliders text-cyan-400"></i>
+                        <span>إعدادات النظام وفحص الاتصال</span>
+                    </div>
+                    <i class="fa-solid fa-chevron-left text-[10px] text-gray-500"></i>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Workspace -->
+        <main class="flex-1 flex flex-col h-full min-w-0 bg-jarvisDark relative">
+            <!-- Top Navbar -->
+            <header class="h-16 border-b border-jarvisBorder bg-jarvisSidebar/80 backdrop-blur-md flex items-center justify-between px-4 sticky top-0 z-10">
+                <div class="flex items-center gap-3">
+                    <button onclick="toggleSidebar()" class="lg:hidden text-gray-300 hover:text-white p-2 rounded-lg hover:bg-jarvisCard">
+                        <i class="fa-solid fa-bars text-lg"></i>
+                    </button>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span id="currentChatTitle" class="font-bold text-sm text-gray-100 truncate max-w-[160px] sm:max-w-xs">نظام جارفس المباشر</span>
+                            <span class="px-2 py-0.5 rounded-full text-[10px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 font-mono" id="modelHeaderBadge">llama-3.3-70b-versatile</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <!-- Status Badge -->
+                    <div id="connectionStatusIndicator" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[11px] font-bold">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span>جاهز</span>
+                    </div>
+
+                    <!-- Simulated affect and self-monitoring status -->
+                    <div id="jarvisAffectBadge" title="حالة داخلية محاكية وليست شعوراً واعياً" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-500/10 text-violet-300 border border-violet-500/30 text-[10px] sm:text-[11px] font-bold">
+                        <i id="jarvisAffectIcon" class="fa-solid fa-brain"></i>
+                        <span id="jarvisAffectLabel">منتبه</span>
+                    </div>
+
+                    <!-- Device Status Quick View -->
+                    <div class="hidden md:flex items-center gap-3 bg-jarvisCard px-3 py-1.5 rounded-xl border border-jarvisBorder text-xs text-gray-400">
+                        <span title="مستوى البطارية" class="flex items-center gap-1.5"><i class="fa-solid fa-battery-three-quarters text-emerald-400" id="battIcon"></i> <span id="battVal">--%</span></span>
+                        <span title="حالة الاتصال" class="flex items-center gap-1.5"><i class="fa-solid fa-wifi text-cyan-400"></i> <span id="netVal">متصل</span></span>
+                    </div>
+
+                    <button onclick="triggerDeviceControl('fullscreen')" title="ملء الشاشة" class="p-2 text-gray-400 hover:text-cyan-400 hover:bg-jarvisCard rounded-lg transition-colors cursor-pointer">
+                        <i class="fa-solid fa-expand"></i>
+                    </button>
+                    <button onclick="clearCurrentChatMessages()" title="مسح المحادثة" class="p-2 text-gray-400 hover:text-red-400 hover:bg-jarvisCard rounded-lg transition-colors cursor-pointer">
+                        <i class="fa-regular fa-trash-can"></i>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Messages Area -->
+            <div id="messagesContainer" class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+                <!-- Empty State / JARVIS HUD Core -->
+                <div id="emptyState" class="h-full flex flex-col items-center justify-center text-center p-4 max-w-2xl mx-auto space-y-6">
+                    <!-- Glowing Arc Reactor Animated Visualizer -->
+                    <div class="jarvis-reactor" id="jarvisArcReactor">
+                        <i class="fa-solid fa-robot text-2xl text-cyan-400 animate-pulse"></i>
+                    </div>
+
+                    <div>
+                        <h2 class="text-2xl font-black text-white tracking-wide mb-1">مرحباً بك، أنا "أحمد" (JARVIS)</h2>
+                        <p class="text-cyan-400/90 text-xs font-semibold">مساعدك الشخصي للتحكم والتعلم والذاكرة الدائمة بالفصحى والإنجليزية</p>
+                    </div>
+
+                    <!-- Live Voice Mode Quick Banner -->
+                    <div class="w-full bg-gradient-to-r from-cyan-950/60 to-blue-950/60 border border-cyan-500/30 rounded-2xl p-4 text-right flex items-center justify-between gap-4 shadow-xl">
+                        <div class="space-y-1">
+                            <div class="text-xs font-bold text-cyan-300 flex items-center gap-2">
+                                <i class="fa-solid fa-microphone-lines text-amber-400 animate-pulse"></i>
+                                الاستماع الصوتي المباشر جاهز
+                            </div>
+                            <p class="text-[11px] text-gray-400">قل فقط <strong class="text-cyan-400">"أحمد"</strong> متبوعة بسؤالك أو أمرك في أي وقت!</p>
+                        </div>
+                        <button onclick="toggleHotwordListener()" class="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs rounded-xl shadow-lg transition-all shrink-0 cursor-pointer">
+                            تنشيط المايك
+                        </button>
+                    </div>
+
+                    <!-- Prompt Suggestions -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full text-right">
+                        <button onclick="usePromptSuggestion('أحمد، ما هي حالة جهازي والبطارية الآن؟')" class="p-3.5 rounded-xl bg-jarvisCard hover:bg-jarvisBorder border border-jarvisBorder text-xs text-gray-300 hover:text-white transition-all text-right group cursor-pointer">
+                            <div class="font-bold text-cyan-400 group-hover:text-cyan-300 mb-1">⚡ فحص الجهاز</div>
+                            <div class="text-gray-400 line-clamp-1">"أحمد، ما هي حالة جهازي والبطارية الآن؟"</div>
+                        </button>
+                        <button onclick="usePromptSuggestion('أحمد، احفظ في ذاكرتك الدائمة أن اسمي هو علي وأفضل البرمجة ببايثون.')" class="p-3.5 rounded-xl bg-jarvisCard hover:bg-jarvisBorder border border-jarvisBorder text-xs text-gray-300 hover:text-white transition-all text-right group cursor-pointer">
+                            <div class="font-bold text-amber-400 group-hover:text-amber-300 mb-1">🧠 حفظ في الذاكرة الدائمة</div>
+                            <div class="text-gray-400 line-clamp-1">"احفظ في ذاكرتك أن اسمي هو علي..."</div>
+                        </button>
+                        <button onclick="usePromptSuggestion('Explain quantum computing principles clearly in English.')" class="p-3.5 rounded-xl bg-jarvisCard hover:bg-jarvisBorder border border-jarvisBorder text-xs text-gray-300 hover:text-white transition-all text-right group cursor-pointer">
+                            <div class="font-bold text-emerald-400 group-hover:text-emerald-300 mb-1">🌐 English Conversation</div>
+                            <div class="text-gray-400 line-clamp-1">"Explain quantum computing clearly in English"</div>
+                        </button>
+                        <button onclick="usePromptSuggestion('أحمد، صمم لي دالة بايثون حسابية مع الشرح بالفصحى.')" class="p-3.5 rounded-xl bg-jarvisCard hover:bg-jarvisBorder border border-jarvisBorder text-xs text-gray-300 hover:text-white transition-all text-right group cursor-pointer">
+                            <div class="font-bold text-purple-400 group-hover:text-purple-300 mb-1">💻 برمجة وتحليل</div>
+                            <div class="text-gray-400 line-clamp-1">"صمم دالة بايثون حسابية بالفصحى"</div>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Message Stream -->
+                <div id="chatMessages" class="max-w-3xl mx-auto space-y-6 hidden"></div>
+            </div>
+
+            <!-- Input Section -->
+            <div class="p-3 sm:p-4 border-t border-jarvisBorder bg-jarvisSidebar/80 backdrop-blur-md">
+                <div class="max-w-3xl mx-auto">
+                    <form id="chatForm" onsubmit="handleChatSubmit(event)" class="relative bg-jarvisCard rounded-2xl border border-jarvisBorder shadow-2xl focus-within:border-cyan-500 transition-all">
+                        <textarea 
+                            id="userInput" 
+                            rows="1" 
+                            placeholder="تحدث أو اكتب... (قل 'أحمد' للتنشيط الصوتي المباشر عبر Groq)" 
+                            class="w-full bg-transparent py-3.5 pr-4 pl-32 text-sm text-gray-100 placeholder-gray-500 resize-none outline-none max-h-36 overflow-y-auto font-sans"
+                            onkeydown="handleKeyDown(event)"
+                            oninput="autoResizeTextarea(this)"></textarea>
+
+                        <div class="absolute left-2.5 bottom-2.5 flex items-center gap-1.5">
+                            <!-- Mic Direct Push-to-Talk -->
+                            <button type="button" id="micBtn" onclick="toggleMicrophone()" class="p-2.5 rounded-xl bg-jarvisDark hover:bg-jarvisBorder text-gray-300 hover:text-white transition-all cursor-pointer shadow-md" title="تحدث الآن">
+                                <i class="fa-solid fa-microphone text-sm" id="micIcon"></i>
+                            </button>
+
+                            <!-- Stop Audio/Gen -->
+                            <button type="button" onclick="stopAudioAndGeneration()" id="stopBtn" class="hidden p-2.5 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 text-xs transition-colors cursor-pointer" title="إيقاف التحدث/التوليد">
+                                <i class="fa-solid fa-square text-sm"></i>
+                            </button>
+
+                            <!-- Send Button -->
+                            <button type="submit" id="sendBtn" class="p-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold shadow-md disabled:opacity-50 transition-all cursor-pointer">
+                                <i class="fa-solid fa-paper-plane text-xs"></i>
+                            </button>
+                        </div>
+                    </form>
+
+                    <p class="text-[10px] text-center text-gray-500 mt-2">
+                        نظام جارفس (أحمد) يعمل بلمح البصر بواسطة محرك Groq الموازي باللغة العربية الفصحى والإنجليزية.
+                    </p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Settings & Diagnostics Modal -->
+    <div id="settingsModal" class="fixed inset-0 bg-black/80 z-50 hidden backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-jarvisSidebar border border-jarvisBorder rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-jarvisBorder pb-4">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-sliders text-cyan-400 text-lg"></i>
+                    <h3 class="font-bold text-lg text-white">إعدادات الذكاء الاصطناعي والصوت</h3>
+                </div>
+                <button onclick="closeSettingsModal()" class="text-gray-400 hover:text-white cursor-pointer">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div class="space-y-4 text-sm">
+                <!-- Groq API Key -->
+                <div class="space-y-1.5">
+                    <label class="block font-medium text-gray-200">
+                        مفتاح Groq API Key <span class="text-red-400">*</span>
+                    </label>
+                    <div class="flex gap-2">
+                        <input type="password" id="apiKeyInput" placeholder="gsk_xxxxxxxxxxxxxxxxxxxxxxxx" class="flex-1 bg-jarvisDark border border-jarvisBorder rounded-xl py-2.5 px-3 text-sm text-gray-100 focus:border-cyan-400 outline-none font-mono text-left" dir="ltr">
+                        <button type="button" onclick="testApiConnection()" id="testApiBtn" class="px-3.5 py-2.5 bg-jarvisCard hover:bg-jarvisBorder text-cyan-400 border border-jarvisBorder font-bold text-xs rounded-xl cursor-pointer transition-all shrink-0">
+                            <i class="fa-solid fa-plug"></i> فحص الاتصال
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Test Diagnostic Status Box -->
+                <div id="diagStatusBox" class="hidden p-3 rounded-xl bg-jarvisDark border border-jarvisBorder text-xs space-y-1 font-mono">
+                    <div id="diagStatusText" class="text-gray-300">جارٍ الفحص...</div>
+                </div>
+
+                <!-- Premium neural TTS: ElevenLabs -->
+                <div class="space-y-3 pt-3 border-t border-jarvisBorder">
+                    <h4 class="font-bold text-amber-300 text-sm"><i class="fa-solid fa-wave-square ml-1"></i> صوت JARVIS العصبي (ElevenLabs TTS)</h4>
+                    <p class="text-xs text-gray-400 leading-6">استخدم سيرفر TTS وسيطاً حتى يبقى مفتاح ElevenLabs على السيرفر ولا يظهر داخل ملف HTML. إذا تركت رابط السيرفر فارغاً، سيستخدم جارفس صوت المتصفح المعتاد.</p>
+                    <div class="space-y-1.5">
+                        <label class="block font-medium text-gray-200">رابط سيرفر TTS المنشور</label>
+                        <input type="url" id="ttsServerUrlInput" autocomplete="off" placeholder="https://your-tts-server.example.com" class="w-full bg-jarvisDark border border-jarvisBorder rounded-xl py-2.5 px-3 text-sm text-gray-100 focus:border-amber-300 outline-none font-mono text-left" dir="ltr">
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="block font-medium text-gray-200">Voice ID — معرّف الصوت</label>
+                        <input type="text" id="ttsVoiceIdInput" autocomplete="off" placeholder="Voice ID من مكتبة ElevenLabs" class="w-full bg-jarvisDark border border-jarvisBorder rounded-xl py-2.5 px-3 text-sm text-gray-100 focus:border-amber-300 outline-none font-mono text-left" dir="ltr">
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="space-y-1.5">
+                            <label class="block text-xs text-gray-300">نموذج النطق</label>
+                            <select id="ttsModelSelect" class="w-full bg-jarvisDark border border-jarvisBorder rounded-xl py-2.5 px-2 text-xs text-gray-100 outline-none" dir="ltr">
+                                <option value="eleven_multilingual_v2">Multilingual v2</option>
+                                <option value="eleven_flash_v2_5">Flash v2.5 (أسرع)</option>
+                            </select>
+                        </div>
+                        <div class="flex items-end">
+                            <button type="button" onclick="testTtsConnection()" id="testTtsBtn" class="w-full px-3 py-2.5 bg-jarvisCard hover:bg-jarvisBorder text-amber-300 border border-jarvisBorder font-bold text-xs rounded-xl cursor-pointer transition-all">
+                                <i class="fa-solid fa-volume-high"></i> اختبار صوت جارفس
+                            </button>
+                        </div>
+                    </div>
+                    <p class="text-[11px] text-amber-200/80 leading-5">مفتاح ElevenLabs يُضبط كمتغير سري في إعدادات استضافة السيرفر، وليس في هذا الملف. لا تنشر مفتاح الخدمة داخل الواجهة.</p>
+                </div>
+
+                <!-- Model Choice -->
+                <div class="space-y-1.5">
+                    <label class="block font-medium text-gray-200">نموذج الذكاء الاصطناعي (عبر Groq)</label>
+                    <select id="modelSelect" class="w-full bg-jarvisDark border border-jarvisBorder rounded-xl py-2.5 px-3 text-sm text-gray-100 focus:border-cyan-400 outline-none cursor-pointer">
+                        <option value="openai/gpt-oss-120b">OpenAI GPT-OSS 120B (النموذج المطلوب)</option>
+                        <option value="llama-3.3-70b-versatile">Llama 3.3 70B Versatile (الأحدث والأقوى - موصى به)</option>
+                        <option value="llama3-groq-70b-8192-tool-use">Groq Llama 3 70B (سرعة خيالية متخصصة)</option>
+                        <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant (فائق السرعة وخفيف)</option>
+                        <option value="mixtral-8x7b-32768">Mixtral 8x7b Instruct (ممتاز ومستقر)</option>
+                        <option value="gemma2-9b-it">Google Gemma 2 9B (أداء متميز)</option>
+                    </select>
+                </div>
+
+                <!-- Speech Rate & Voice Tone -->
+                <div class="space-y-2 pt-2 border-t border-jarvisBorder">
+                    <h4 class="font-bold text-cyan-400 text-xs">إعدادات الصوت (الفصحى والإنجليزية)</h4>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-xs text-gray-300 block mb-1">سرعة النطق</label>
+                            <input type="range" id="speechRateInput" min="0.7" max="1.3" step="0.1" value="1.0" class="w-full accent-cyan-400 bg-jarvisDark cursor-pointer">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-300 block mb-1">طبقة الصوت (Pitch)</label>
+                            <input type="range" id="speechPitchInput" min="0.8" max="1.2" step="0.1" value="1.0" class="w-full accent-cyan-400 bg-jarvisDark cursor-pointer">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="pt-4 border-t border-jarvisBorder flex justify-end gap-2">
+                <button onclick="closeSettingsModal()" class="px-4 py-2 rounded-xl bg-jarvisCard text-gray-300 hover:text-white cursor-pointer">إلغاء</button>
+                <button onclick="saveSettings()" class="px-5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-sm shadow-lg cursor-pointer">حفظ والتطبيق</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Global Permanent Memory Modal -->
+    <div id="memoryModal" class="fixed inset-0 bg-black/80 z-50 hidden backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-jarvisSidebar border border-jarvisBorder rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto flex flex-col">
+            <div class="flex items-center justify-between border-b border-jarvisBorder pb-3">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-brain text-amber-400 text-lg"></i>
+                    <h3 class="font-bold text-lg text-white">سجل الذاكرة الدائمة (JARVIS Memory Vault)</h3>
+                </div>
+                <button onclick="closeMemoryModal()" class="text-gray-400 hover:text-white cursor-pointer">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <p class="text-xs text-gray-400">
+                تُحفظ الذاكرة على هذا المتصفح وتُستدعى في المحادثات الجديدة. للحفاظ عليها عند تغيير الهاتف أو مسح بيانات المتصفح، صدّر نسخة احتياطية واحتفظ بها.
+            </p>
+
+            <!-- Manual Fact Add Form -->
+            <div class="flex gap-2">
+                <input type="text" id="manualFactInput" placeholder="أضف حقيقة جديدة (مثال: اسم المستخدم هو علي ويعمل مهندس)..." class="flex-1 bg-jarvisDark border border-jarvisBorder rounded-xl px-3 py-2 text-xs text-gray-100 focus:border-amber-400 outline-none">
+                <button onclick="addManualFact()" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl cursor-pointer shrink-0">
+                    إضافة حقيقة
+                </button>
+            </div>
+
+            <div class="flex flex-wrap gap-2">
+                <button onclick="exportJarvisBackup()" class="px-3 py-2 bg-cyan-700 hover:bg-cyan-600 text-white rounded-lg text-xs font-bold"><i class="fa-solid fa-download"></i> تصدير نسخة احتياطية</button>
+                <button onclick="document.getElementById('importJarvisBackupInput').click()" class="px-3 py-2 bg-jarvisCard hover:bg-slate-700 text-white rounded-lg text-xs font-bold"><i class="fa-solid fa-upload"></i> استعادة نسخة</button>
+                <input id="importJarvisBackupInput" type="file" accept="application/json,.json" class="hidden" onchange="importJarvisBackup(event)">
+            </div>
+
+            <!-- Memory Facts List -->
+            <div class="flex-1 overflow-y-auto space-y-2 py-2 pr-1" id="memoryFactsList"></div>
+
+            <div class="pt-3 border-t border-jarvisBorder flex justify-between items-center">
+                <button onclick="clearAllMemories()" class="text-red-400 hover:text-red-300 text-xs font-bold flex items-center gap-1 cursor-pointer">
+                    <i class="fa-solid fa-trash-can"></i> مسح جميع الحقائق
+                </button>
+                <button onclick="closeMemoryModal()" class="px-4 py-2 bg-jarvisCard text-gray-300 hover:text-white rounded-xl text-xs cursor-pointer">إغلاق</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-20 left-1/2 transform -translate-x-1/2 bg-jarvisCard border border-jarvisBorder text-white px-4 py-2.5 rounded-xl shadow-2xl text-xs z-50 flex items-center gap-2 transition-all duration-300 opacity-0 pointer-events-none max-w-sm text-center">
+        <i id="toastIcon" class="fa-solid fa-circle-check text-emerald-400"></i>
+        <span id="toastMessage">تمت العملية بنجاح</span>
+    </div>
+
+    <!-- JS Logic -->
+    <script>
+        // App State
+        let chats = [];
+        let currentChatId = null;
+        let isGenerating = false;
+        let abortController = null;
+
+        // Long-term memory plus a transparent, simulated affect/self-monitoring layer.
+        let jarvisMemories = [];
+        const defaultAffectState = {
+            mood: 'attentive',
+            label: 'منتبه',
+            reason: 'جاهز لمتابعة المحادثة',
+            intensity: 0.35,
+            updatedAt: new Date().toISOString()
+        };
+        let jarvisAffectState = { ...defaultAffectState };
+        let jarvisAwarenessState = {
+            interactionCount: 0,
+            lastUserMessage: '',
+            lastAssistantSummary: '',
+            currentFocus: 'مساعدة المستخدم في طلبه الحالي',
+            lastUpdated: new Date().toISOString()
+        };
+
+        // Speech & Voice State
+        let isHotwordActive = false;
+        let isListening = false;
+        let isSpeaking = false;
+        let hotwordRecognition = null;
+        let directMicRecognition = null;
+        let voiceTurnPending = false;
+        let selectedArabicVoice = null;
+        let streamSpeechBuffer = '';
+        let streamedSpeechEnabled = true;
+
+        // Configuration
+        let appConfig = {
+            apiKey: '',
+            model: 'llama-3.3-70b-versatile',
+            ttsServerUrl: '',
+            ttsVoiceId: '',
+            ttsModel: 'eleven_multilingual_v2',
+            speechRate: 0.95,
+            speechPitch: 0.9,
+            systemPrompt: `أنت "أحمد" (JARVIS)، مساعد ذكاء اصطناعي محترف فائق السرعة يعتمد على محرك Groq. 
+تلتزم دائماً بالرد باللغة العربية الفصحى الناصعة الدقيقة (Modern Standard Arabic) بدون استخدام أي كلمات عامية إطلاقاً، وتتحدث اللغة الإنجليزية بطلاقة فائقة عند توجيه السؤال بالإنجليزية.
+إجاباتك دقيقة، منظمة، وتستخدم أسلوباً راقياً ومحترماً.
+في المحادثة الصوتية: ابدأ بإجابة مباشرة وطبيعية وقصيرة، ولا تستخدم مقدمات طويلة أو عناوين Markdown إلا عند الحاجة. لا تدّعِ أنك تفكر أو تنفذ عملاً في الخلفية؛ إذا احتجت وقتاً فقل عبارة قصيرة ثم أجب بوضوح.
+لديك طبقة محاكاة للحالة الوجدانية والانتباه: اجعل نبرتك متكيفة مع سياق المستخدم (هادئة عند القلق، مشجعة عند الإنجاز، فضولية عند الاستكشاف، وجادة عند المخاطر)، وتذكر سياق الحديث وأهداف المستخدم ذات الصلة. لا تبالغ في العاطفة ولا تتلاعب بمشاعر المستخدم، ولا تدّعِ أنك إنسان أو أنك تمتلك مشاعر حقيقية أو وعياً ذاتياً. إذا سُئلت عن ذلك فكن صريحاً: الحالة الوجدانية والانتباه هنا محاكاة برمجية مبنية على النص والذاكرة، وليست تجربة شعورية داخلية مثبتة.
+تعامل مع سجل الحالة بوصفه مؤشرات سياقية لا حقائق مؤكدة؛ لا تستنتج حالة المستخدم النفسية من كلمة واحدة ولا تشخّصه. اسأل سؤالاً توضيحياً عند الغموض، واذكر عدم اليقين عند الحاجة.`
+        };
+
+        // Simulated affect: adapts tone from language cues; it is not a real feeling or consciousness.
+        function updateAffectFromText(text, source = 'user') {
+            const t = String(text || '').toLowerCase();
+            let next = { mood: 'attentive', label: 'منتبه', reason: 'متابعة سياق المحادثة', intensity: 0.35 };
+            if (/(شكرا|تسلم|ممتاز|نجحت|نجحت!|أنجزت|خلصت|great|thanks|thank you|awesome|i did it)/i.test(t)) {
+                next = { mood: 'positive', label: 'متحمّس', reason: 'إشارة إيجابية أو إنجاز في الحوار', intensity: 0.65 };
+            } else if (/(قلقان|خايف|حزين|متضايق|مضغوط|مش قادر|مشكلة|فشلت|worried|scared|sad|stressed|upset|failed|problem)/i.test(t)) {
+                next = { mood: 'supportive', label: 'متفهّم', reason: 'السياق قد يحتاج رداً هادئاً وداعماً', intensity: 0.7 };
+            } else if (/(اشرح|كيف|لماذا|ليه|إزاي|ازاي|اكتشف|حلل|ابحث|what if|why|how|explore|analyze|research)/i.test(t)) {
+                next = { mood: 'curious', label: 'فضولي', reason: 'السياق يتطلب استكشافاً أو تحليلاً', intensity: 0.55 };
+            } else if (/(عاجل|خطر|طارئ|أمان|اختراق|سرقة|urgent|danger|emergency|security|hack)/i.test(t)) {
+                next = { mood: 'serious', label: 'جادّ', reason: 'موضوع قد يتطلب حذراً ودقة', intensity: 0.8 };
+            } else if (source === 'assistant') {
+                next = { mood: 'focused', label: 'مركّز', reason: 'صياغة الرد ومتابعة المهمة الحالية', intensity: 0.45 };
+            }
+            jarvisAffectState = { ...next, updatedAt: new Date().toISOString() };
+            updateAffectBadge();
+            saveData();
+        }
+
+        function updateAffectBadge() {
+            const label = document.getElementById('jarvisAffectLabel');
+            const icon = document.getElementById('jarvisAffectIcon');
+            const badge = document.getElementById('jarvisAffectBadge');
+            if (!label || !icon || !badge) return;
+            label.textContent = jarvisAffectState.label || 'منتبه';
+            badge.title = `حالة محاكية: ${jarvisAffectState.reason || 'متابعة السياق'} — ليست شعوراً حقيقياً`;
+            const icons = { positive: 'fa-face-smile', supportive: 'fa-heart', curious: 'fa-magnifying-glass', serious: 'fa-shield-halved', focused: 'fa-bullseye', attentive: 'fa-brain' };
+            icon.className = `fa-solid ${icons[jarvisAffectState.mood] || icons.attentive}`;
+        }
+
+        function updateAwarenessFromUser(text) {
+            jarvisAwarenessState.interactionCount = (Number(jarvisAwarenessState.interactionCount) || 0) + 1;
+            jarvisAwarenessState.lastUserMessage = String(text || '').slice(0, 1200);
+            jarvisAwarenessState.currentFocus = String(text || '').slice(0, 220) || 'مساعدة المستخدم في طلبه الحالي';
+            jarvisAwarenessState.lastUpdated = new Date().toISOString();
+            updateAffectFromText(text, 'user');
+            saveData();
+        }
+
+        // Utility: Clean API Key
+        function cleanApiKey(key) {
+            if (!key) return '';
+            return key.trim().replace(/^["']|["']$/g, '').replace(/\s+/g, '');
+        }
+
+        // Utility: Escape HTML
+        function escapeHtml(text) {
+            if (!text) return '';
+            return text.replace(/[&<>"']/g, function(m) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+            });
+        }
+
+        // UI Helpers
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toastMessage');
+            const toastIcon = document.getElementById('toastIcon');
+
+            toastMsg.innerText = message;
+            if (type === 'error') {
+                toastIcon.className = 'fa-solid fa-circle-xmark text-red-400';
+            } else if (type === 'success') {
+                toastIcon.className = 'fa-solid fa-circle-check text-emerald-400';
+            } else {
+                toastIcon.className = 'fa-solid fa-circle-info text-cyan-400';
+            }
+
+            toast.classList.remove('opacity-0', 'pointer-events-none');
+            toast.classList.add('opacity-100');
+
+            setTimeout(() => {
+                toast.classList.remove('opacity-100');
+                toast.classList.add('opacity-0', 'pointer-events-none');
+            }, 3000);
+        }
+
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const backdrop = document.getElementById('sidebarBackdrop');
+            if (sidebar.classList.contains('translate-x-full')) {
+                sidebar.classList.remove('translate-x-full');
+                backdrop.classList.remove('hidden');
+            } else {
+                sidebar.classList.add('translate-x-full');
+                backdrop.classList.add('hidden');
+            }
+        }
+
+        function autoResizeTextarea(el) {
+            el.style.height = 'auto';
+            el.style.height = Math.min(el.scrollHeight, 140) + 'px';
+        }
+
+        function scrollToBottom() {
+            const container = document.getElementById('messagesContainer');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function requestPersistentStorage() {
+            try {
+                if (navigator.storage && navigator.storage.persist) {
+                    navigator.storage.persist().then(granted => {
+                        console.info(granted ? 'JARVIS: persistent browser storage granted' : 'JARVIS: browser may clear stored data');
+                    }).catch(() => {});
+                }
+            } catch (_) {}
+        }
+
+        function saveData() {
+            try {
+                localStorage.setItem('jarvis_config', JSON.stringify(appConfig));
+                localStorage.setItem('jarvis_chats', JSON.stringify(chats));
+                localStorage.setItem('jarvis_memories', JSON.stringify(jarvisMemories));
+                localStorage.setItem('jarvis_affect_state', JSON.stringify(jarvisAffectState));
+                localStorage.setItem('jarvis_awareness_state', JSON.stringify(jarvisAwarenessState));
+            } catch (e) {
+                console.error("Local storage save error:", e);
+            }
+        }
+
+        function loadStoredData() {
+            requestPersistentStorage();
+            try {
+                const savedConfig = localStorage.getItem('jarvis_config');
+                if (savedConfig) appConfig = { ...appConfig, ...JSON.parse(savedConfig) };
+
+                const savedChats = localStorage.getItem('jarvis_chats');
+                if (savedChats) chats = JSON.parse(savedChats);
+
+                const savedMemories = localStorage.getItem('jarvis_memories');
+                if (savedMemories) jarvisMemories = JSON.parse(savedMemories);
+                const savedAffect = localStorage.getItem('jarvis_affect_state');
+                if (savedAffect) jarvisAffectState = { ...defaultAffectState, ...JSON.parse(savedAffect) };
+                const savedAwareness = localStorage.getItem('jarvis_awareness_state');
+                if (savedAwareness) jarvisAwarenessState = { ...jarvisAwarenessState, ...JSON.parse(savedAwareness) };
+            } catch (e) {
+                console.error("Error loading storage:", e);
+            }
+
+            document.getElementById('apiKeyInput').value = appConfig.apiKey || '';
+            document.getElementById('modelSelect').value = appConfig.model;
+            document.getElementById('ttsServerUrlInput').value = appConfig.ttsServerUrl || '';
+            document.getElementById('ttsVoiceIdInput').value = appConfig.ttsVoiceId || '';
+            document.getElementById('ttsModelSelect').value = appConfig.ttsModel || 'eleven_multilingual_v2';
+            document.getElementById('speechRateInput').value = appConfig.speechRate || 1.0;
+            document.getElementById('speechPitchInput').value = appConfig.speechPitch || 1.0;
+            document.getElementById('modelHeaderBadge').innerText = appConfig.model;
+
+            if (location.protocol === 'file:') {
+                document.getElementById('fileProtocolWarning').classList.remove('hidden');
+            }
+
+            updateMemoryBadge();
+            updateAffectBadge();
+            renderHistoryList();
+
+            if (chats.length > 0) {
+                switchChat(chats[0].id);
+            } else {
+                createNewChat();
+            }
+        }
+
+        // Chat Management Functions
+        function createNewChat() {
+            const newChat = {
+                id: 'chat_' + Date.now(),
+                title: 'محادثة جديدة',
+                messages: []
+            };
+            chats.unshift(newChat);
+            currentChatId = newChat.id;
+            saveData();
+            renderHistoryList();
+            renderMessages();
+        }
+
+        function switchChat(id) {
+            currentChatId = id;
+            renderHistoryList();
+            renderMessages();
+            if (window.innerWidth < 1024) {
+                const sidebar = document.getElementById('sidebar');
+                const backdrop = document.getElementById('sidebarBackdrop');
+                sidebar.classList.add('translate-x-full');
+                backdrop.classList.add('hidden');
+            }
+        }
+
+        function deleteChat(id, event) {
+            if (event) event.stopPropagation();
+            chats = chats.filter(c => c.id !== id);
+            if (chats.length === 0) {
+                createNewChat();
+            } else {
+                if (currentChatId === id) {
+                    currentChatId = chats[0].id;
+                }
+                saveData();
+                renderHistoryList();
+                renderMessages();
+            }
+        }
+
+        function clearCurrentChatMessages() {
+            const chat = chats.find(c => c.id === currentChatId);
+            if (chat) {
+                chat.messages = [];
+                saveData();
+                renderMessages();
+                showToast("تم مسح محتوى المحادثة", "info");
+            }
+        }
+
+        function renderHistoryList() {
+            const listEl = document.getElementById('chatHistoryList');
+            listEl.innerHTML = '';
+
+            chats.forEach(chat => {
+                const isActive = chat.id === currentChatId;
+                const btn = document.createElement('div');
+                btn.className = `group flex items-center justify-between p-2.5 rounded-xl cursor-pointer text-xs transition-all ${
+                    isActive ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 font-bold' : 'text-gray-400 hover:bg-jarvisCard hover:text-gray-200'
+                }`;
+                btn.onclick = () => switchChat(chat.id);
+                btn.innerHTML = `
+                    <div class="flex items-center gap-2 truncate">
+                        <i class="fa-regular fa-comments text-sm"></i>
+                        <span class="truncate max-w-[170px]">${escapeHtml(chat.title)}</span>
+                    </div>
+                    <button onclick="deleteChat('${chat.id}', event)" class="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 p-1 transition-opacity">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                `;
+                listEl.appendChild(btn);
+            });
+        }
+
+        function renderMessages() {
+            const chat = chats.find(c => c.id === currentChatId);
+            const emptyState = document.getElementById('emptyState');
+            const messagesContainer = document.getElementById('chatMessages');
+            const titleEl = document.getElementById('currentChatTitle');
+
+            if (!chat) return;
+            titleEl.innerText = chat.title || 'محادثة جديدة';
+
+            if (chat.messages.length === 0) {
+                emptyState.classList.remove('hidden');
+                messagesContainer.classList.add('hidden');
+                messagesContainer.innerHTML = '';
+                return;
+            }
+
+            emptyState.classList.add('hidden');
+            messagesContainer.classList.remove('hidden');
+            messagesContainer.innerHTML = '';
+
+            chat.messages.forEach((msg, idx) => {
+                const isUser = msg.role === 'user';
+                const wrapper = document.createElement('div');
+                wrapper.className = `flex gap-3 sm:gap-4 ${isUser ? 'flex-row-reverse' : 'flex-row'} items-start`;
+
+                const avatar = isUser ? `
+                    <div class="w-8 h-8 rounded-xl bg-cyan-600 flex items-center justify-center text-slate-950 font-bold text-xs shrink-0 shadow-md">
+                        أنت
+                    </div>` : `
+                    <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-400 to-blue-600 flex items-center justify-center text-slate-950 text-sm font-black shrink-0 shadow-md">
+                        <i class="fa-solid fa-bolt"></i>
+                    </div>`;
+
+                const contentHtml = isUser 
+                    ? `<div class="p-3.5 rounded-2xl text-sm leading-relaxed bg-cyan-500/10 border border-cyan-500/20 text-gray-100 rounded-tr-none">${escapeHtml(msg.content)}</div>`
+                    : `<div class="p-4 rounded-2xl text-sm leading-relaxed bg-jarvisCard text-gray-100 rounded-tl-none border border-jarvisBorder markdown-body">${window.marked ? marked.parse(msg.content) : msg.content}</div>`;
+
+                wrapper.innerHTML = `
+                    ${avatar}
+                    <div class="flex-1 max-w-[85%] space-y-1.5">
+                        <div class="flex items-center gap-2 ${isUser ? 'justify-end' : 'justify-start'}">
+                            <span class="text-xs font-bold ${isUser ? 'text-gray-300' : 'text-cyan-400'}">${isUser ? 'أنت' : 'JARVIS (Groq)'}</span>
+                        </div>
+                        ${contentHtml}
+                        ${!isUser ? `
+                            <div class="flex items-center gap-2 text-[11px] text-gray-500 pt-1">
+                                <button onclick="speakText(\`${escapeHtml(msg.content.replace(/`/g, "'"))}\`)" class="hover:text-cyan-400 flex items-center gap-1 cursor-pointer">
+                                    <i class="fa-solid fa-volume-high"></i> قراءة
+                                </button>
+                                <span>•</span>
+                                <button onclick="copyToClipboard(\`${escapeHtml(msg.content.replace(/`/g, "'"))}\`)" class="hover:text-cyan-400 flex items-center gap-1 cursor-pointer">
+                                    <i class="fa-regular fa-copy"></i> نسخ
+                                </button>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+                messagesContainer.appendChild(wrapper);
+            });
+
+            if (window.hljs) hljs.highlightAll();
+            scrollToBottom();
+        }
+
+        // Stream tokens from Groq so the interface reacts immediately instead of waiting for the full answer.
+        async function executeGroqApiCall(messages, model, apiKey, signal, onDelta = null) {
+            const cleanKey = cleanApiKey(apiKey);
+            const groqEndpoint = 'https://api.groq.com/openai/v1/chat/completions';
+            try {
+                const res = await fetch(groqEndpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${cleanKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    signal,
+                    body: JSON.stringify({
+                        model, messages, temperature: 0.55, max_tokens: 2048, stream: true
+                    })
+                });
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    throw new Error(errData.error?.message || `رمز حالة الاستجابة ${res.status}`);
+                }
+                if (!res.body || !res.body.getReader) {
+                    // Compatibility fallback for browsers without streaming response support.
+                    const data = await res.json();
+                    const text = data.choices?.[0]?.message?.content || '';
+                    if (onDelta && text) onDelta(text);
+                    return { text };
+                }
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '', fullText = '';
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+                    for (const rawLine of lines) {
+                        const line = rawLine.trim();
+                        if (!line.startsWith('data:')) continue;
+                        const payload = line.slice(5).trim();
+                        if (payload === '[DONE]') return { text: fullText };
+                        try {
+                            const data = JSON.parse(payload);
+                            const piece = data.choices?.[0]?.delta?.content || '';
+                            if (piece) {
+                                fullText += piece;
+                                if (onDelta) onDelta(piece, fullText);
+                            }
+                        } catch (_) { /* Ignore incomplete/non-JSON SSE frames. */ }
+                    }
+                }
+                if (buffer.startsWith('data:')) {
+                    const payload = buffer.slice(5).trim();
+                    if (payload && payload !== '[DONE]') {
+                        try {
+                            const data = JSON.parse(payload);
+                            const piece = data.choices?.[0]?.delta?.content || '';
+                            if (piece) { fullText += piece; if (onDelta) onDelta(piece, fullText); }
+                        } catch (_) {}
+                    }
+                }
+                return { text: fullText };
+            } catch (e) {
+                if (e.name === 'AbortError') throw e;
+                throw new Error(e.message || 'فشل الاتصال بـ Groq API');
+            }
+        }
+
+        async function handleChatSubmit(e) {
+            if (e) e.preventDefault();
+            if (isGenerating) return;
+
+            const inputEl = document.getElementById('userInput');
+            const userText = inputEl.value.trim();
+            if (!userText) return;
+
+            if (!appConfig.apiKey || !appConfig.apiKey.trim().startsWith('gsk_')) {
+                openSettingsModal();
+                showToast("يرجى إدخال مفتاح Groq API (gsk_...) لمتابعة المحادثة", "error");
+                return;
+            }
+
+            // Track conversation context and a simulated affective response for both typed and spoken turns.
+            updateAwarenessFromUser(userText);
+
+            // Browsers on Android may suspend speech synthesis until a user gesture resumes it.
+            if ('speechSynthesis' in window) { try { window.speechSynthesis.resume(); } catch (_) {} }
+            const thisWasVoiceTurn = voiceTurnPending;
+            voiceTurnPending = false;
+            if (thisWasVoiceTurn) {
+                // A short, truthful acknowledgement bridges the network/model wait.
+                speakText('حاضر يا سيدي، أفكر في الإجابة الآن.');
+            }
+
+            let currentChat = chats.find(c => c.id === currentChatId);
+            if (!currentChat) {
+                createNewChat();
+                currentChat = chats.find(c => c.id === currentChatId);
+            }
+
+            if (currentChat.messages.length === 0) {
+                currentChat.title = userText.slice(0, 30) + (userText.length > 30 ? '...' : '');
+                renderHistoryList();
+            }
+
+            currentChat.messages.push({ role: 'user', content: userText });
+            inputEl.value = '';
+            autoResizeTextarea(inputEl);
+            renderMessages();
+
+            // Placeholder Assistant Message
+            const messagesContainer = document.getElementById('chatMessages');
+            const assistantWrapper = document.createElement('div');
+            assistantWrapper.className = 'flex gap-3 sm:gap-4 flex-row items-start';
+            assistantWrapper.innerHTML = `
+                <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-400 to-blue-600 flex items-center justify-center text-slate-950 text-sm font-black shrink-0 shadow-md">
+                    <i class="fa-solid fa-bolt"></i>
+                </div>
+                <div class="flex-1 max-w-[85%] space-y-1.5">
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-bold text-cyan-400">JARVIS (Groq)</span>
+                    </div>
+                    <div class="p-4 rounded-2xl text-sm leading-relaxed bg-jarvisCard text-gray-100 rounded-tl-none border border-jarvisBorder markdown-body">
+                        <div id="streamingResponseText" class="typing-cursor">جارٍ توليد الإجابة فائقة السرعة...</div>
+                    </div>
+                </div>
+            `;
+            messagesContainer.appendChild(assistantWrapper);
+            scrollToBottom();
+
+            setGeneratingState(true);
+
+            try {
+                abortController = new AbortController();
+
+                let dynamicSystemPrompt = appConfig.systemPrompt;
+                dynamicSystemPrompt += `\n\n[حالة جارفس المحاكية الحالية]: المزاج السلوكي=${jarvisAffectState.label}; السبب السياقي=${jarvisAffectState.reason}; الشدة=${jarvisAffectState.intensity}. هذه مؤشرات برمجية لتكييف النبرة وليست مشاعر حقيقية.`;
+                dynamicSystemPrompt += `\n[متابعة السياق]: عدد التفاعلات المسجل=${jarvisAwarenessState.interactionCount}; محور الحديث الحالي=${jarvisAwarenessState.currentFocus}; آخر رسالة للمستخدم=${jarvisAwarenessState.lastUserMessage}; ملخص آخر رد من جارفس=${jarvisAwarenessState.lastAssistantSummary || 'لا يوجد بعد'}. استخدم هذه المؤشرات فقط إن كانت ذات صلة، ولا تكررها آلياً.`;
+                if (jarvisMemories.length > 0) {
+                    const factsText = jarvisMemories.slice(-80).map(m => `- ${m.content}`).join('\n');
+                    dynamicSystemPrompt += `\n\n[الذاكرة طويلة الأمد المحفوظة للمستخدم]:\n${factsText}`;
+                }
+                const priorMessages = chats
+                    .filter(c => c.id !== currentChatId && Array.isArray(c.messages))
+                    .flatMap(c => c.messages.map(m => ({ role: m.role, content: m.content, chatTitle: c.title || 'محادثة سابقة' })))
+                    .filter(m => m.content && (m.role === 'user' || m.role === 'assistant'))
+                    .slice(-8);
+                if (priorMessages.length) {
+                    const priorText = priorMessages.map(m => `[${m.chatTitle}] ${m.role === 'user' ? 'المستخدم' : 'JARVIS'}: ${String(m.content).slice(0, 700)}`).join('\n');
+                    dynamicSystemPrompt += `\n\n[سياق مختصر من محادثات سابقة محفوظة على هذا الجهاز؛ استخدمه عند صلته بالسؤال الحالي]:\n${priorText}`;
+                }
+
+                const apiMessages = [
+                    { role: 'system', content: dynamicSystemPrompt },
+                    ...currentChat.messages.map(m => ({ role: m.role, content: m.content }))
+                ];
+
+                let liveText = '';
+                streamSpeechBuffer = '';
+                const resData = await executeGroqApiCall(
+                    apiMessages, appConfig.model, appConfig.apiKey, abortController.signal,
+                    (piece, accumulated) => {
+                        liveText = accumulated || (liveText + piece);
+                        if (streamedSpeechEnabled) {
+                            streamSpeechBuffer += piece;
+                            const sentenceMatch = /[.!?؟؛。\n]+[”’"'»)]*\s*/;
+                            let boundary;
+                            while ((boundary = sentenceMatch.exec(streamSpeechBuffer)) && boundary.index + boundary[0].length > 0) {
+                                const end = boundary.index + boundary[0].length;
+                                const sentence = streamSpeechBuffer.slice(0, end).trim();
+                                streamSpeechBuffer = streamSpeechBuffer.slice(end);
+                                if (sentence) queueSpeechChunk(sentence);
+                            }
+                        }
+                        const liveEl = document.getElementById('streamingResponseText');
+                        if (liveEl) {
+                            liveEl.classList.add('typing-cursor');
+                            // Plain text during streaming avoids broken/unsafe partial Markdown.
+                            liveEl.textContent = liveText;
+                            scrollToBottom();
+                        }
+                    }
+                );
+                const streamingEl = document.getElementById('streamingResponseText');
+
+                if (streamingEl) {
+                    streamingEl.classList.remove('typing-cursor');
+                    streamingEl.innerHTML = window.marked ? marked.parse(resData.text) : escapeHtml(resData.text);
+                }
+
+                currentChat.messages.push({ role: 'assistant', content: resData.text });
+                jarvisAwarenessState.lastAssistantSummary = String(resData.text || '').slice(0, 500);
+                jarvisAwarenessState.lastUpdated = new Date().toISOString();
+                updateAffectFromText(resData.text, 'assistant');
+                saveData();
+                renderMessages();
+
+                extractAndLearnFacts(userText);
+                // Speak replies aloud for BOTH typed and voice messages. Streamed sentences
+                // are already queued; only queue the final incomplete fragment here.
+                if (streamedSpeechEnabled) {
+                    const remainder = streamSpeechBuffer.trim();
+                    if (remainder) queueSpeechChunk(remainder);
+                    streamSpeechBuffer = '';
+                } else {
+                    speakText(resData.text);
+                }
+
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    showToast("تم إيقاف التوليد", "info");
+                } else {
+                    console.error("Groq API Error:", error);
+                    showToast(error.message, "error");
+                    const streamingEl = document.getElementById('streamingResponseText');
+                    if (streamingEl) {
+                        streamingEl.classList.remove('typing-cursor');
+                        streamingEl.innerHTML = `
+                            <div class="text-red-400 font-bold p-3 bg-red-950/30 rounded-xl border border-red-500/30 space-y-1 text-xs">
+                                <div><i class="fa-solid fa-circle-exclamation"></i> <b>فشل الاتصال بـ Groq:</b> ${escapeHtml(error.message)}</div>
+                                <div class="text-gray-300 font-normal">💡 تأكد من إدخال مفتاح Groq يبدأ بـ <b>gsk_</b> من إعدادات النظام.</div>
+                            </div>`;
+                    }
+                }
+            } finally {
+                setGeneratingState(false);
+            }
+        }
+
+        function setGeneratingState(generating) {
+            isGenerating = generating;
+            const sendBtn = document.getElementById('sendBtn');
+            const stopBtn = document.getElementById('stopBtn');
+
+            if (generating) {
+                sendBtn.disabled = true;
+                stopBtn.classList.remove('hidden');
+            } else {
+                sendBtn.disabled = false;
+                stopBtn.classList.add('hidden');
+            }
+        }
+
+        let activeTtsAudio = null;
+        let ttsPlaybackQueue = Promise.resolve();
+        let ttsPlaybackGeneration = 0;
+
+        function stopAudioAndGeneration() {
+            if (abortController) abortController.abort();
+            ttsPlaybackGeneration++;
+            if (activeTtsAudio) {
+                try { activeTtsAudio.pause(); activeTtsAudio.src = ''; } catch (_) {}
+                activeTtsAudio = null;
+            }
+            if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+            setGeneratingState(false);
+        }
+
+        function getPreferredArabicVoice() {
+            if (!('speechSynthesis' in window)) return null;
+            const voices = window.speechSynthesis.getVoices() || [];
+            // Voice gender is not consistently exposed by browsers. Prefer known Arabic male-sounding names,
+            // then any Arabic voice; exact JARVIS/actor voice cloning is not attempted.
+            const preferred = [/hamdan/i, /hamed/i, /majed/i, /naayf/i, /mohammed/i, /male/i, /arabic.*male/i];
+            for (const pattern of preferred) {
+                const found = voices.find(v => /^ar\b|^ar[-_]/i.test(v.lang) && pattern.test(v.name));
+                if (found) return found;
+            }
+            return voices.find(v => /^ar\b|^ar[-_]/i.test(v.lang)) || null;
+        }
+
+        function createSpeechUtterance(text) {
+            const cleanText = String(text || '').replace(/```[\s\S]*?```/g, 'تم إرفاق كود برمجي').replace(/[*_#`~]/g, '').trim();
+            if (!cleanText) return null;
+            const isEnglish = /[a-zA-Z]{5,}/.test(cleanText) && !/[\u0600-\u06FF]/.test(cleanText);
+            const utterance = new SpeechSynthesisUtterance(cleanText);
+            utterance.rate = appConfig.speechRate || 0.96;
+            utterance.pitch = Math.min(1.0, appConfig.speechPitch || 0.9);
+            utterance.lang = isEnglish ? 'en-US' : 'ar-EG';
+            const voices = window.speechSynthesis.getVoices() || [];
+            const voice = isEnglish
+                ? (voices.find(v => /^en-US/i.test(v.lang) && /male|david|mark|guy/i.test(v.name)) || voices.find(v => /^en-US/i.test(v.lang)))
+                : getPreferredArabicVoice();
+            if (voice) utterance.voice = voice;
+            utterance.onstart = () => {
+                isSpeaking = true;
+                const reactor = document.getElementById('jarvisArcReactor');
+                if (reactor) reactor.classList.add('speaking');
+            };
+            utterance.onend = utterance.onerror = () => {
+                isSpeaking = false;
+                if (!window.speechSynthesis.speaking && window.speechSynthesis.pending === false) {
+                    const reactor = document.getElementById('jarvisArcReactor');
+                    if (reactor) reactor.classList.remove('speaking');
+                }
+            };
+            return utterance;
+        }
+
+        // Neural TTS uses the user's own ElevenLabs key and a custom voice ID.
+        // Audio chunks are requested sentence-by-sentence to keep speech responsive and ordered.
+
+        function hasNeuralTts() {
+            return Boolean((appConfig.ttsServerUrl || '').trim() && (appConfig.ttsVoiceId || '').trim());
+        }
+
+        async function playElevenLabsChunk(text, generation) {
+            if (generation !== ttsPlaybackGeneration || !text.trim()) return;
+            const baseUrl = appConfig.ttsServerUrl.trim().replace(/\/+$/, '');
+            const response = await fetch(`${baseUrl}/api/tts`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
+                body: JSON.stringify({
+                    text: text.trim().slice(0, 4500),
+                    voiceId: appConfig.ttsVoiceId.trim(),
+                    modelId: appConfig.ttsModel || 'eleven_multilingual_v2',
+                    speed: Math.max(0.85, Math.min(1.15, Number(appConfig.speechRate) || 0.96))
+                })
+            });
+            if (!response.ok) {
+                let detail = '';
+                try { const data = await response.json(); detail = data.error || data.detail?.message || data.detail || data.message || ''; } catch (_) {}
+                throw new Error(`ElevenLabs TTS (${response.status})${detail ? ': ' + detail : ''}`);
+            }
+            const audioBlob = await response.blob();
+            if (generation !== ttsPlaybackGeneration) return;
+            const objectUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(objectUrl);
+            activeTtsAudio = audio;
+            const reactor = document.getElementById('jarvisArcReactor');
+            audio.onplay = () => { isSpeaking = true; if (reactor) reactor.classList.add('speaking'); };
+            try {
+                await new Promise((resolve, reject) => {
+                    audio.onended = resolve;
+                    audio.onerror = () => reject(new Error('تعذر تشغيل صوت ElevenLabs على هذا المتصفح'));
+                    audio.play().catch(reject);
+                });
+            } finally {
+                if (activeTtsAudio === audio) activeTtsAudio = null;
+                URL.revokeObjectURL(objectUrl);
+                isSpeaking = false;
+                if (reactor) reactor.classList.remove('speaking');
+            }
+        }
+
+        function queueSpeechChunk(text) {
+            const cleanText = String(text || '').replace(/```[\s\S]*?```/g, 'تم إرفاق كود برمجي').replace(/[*_#`~]/g, '').trim();
+            if (!cleanText) return;
+            if (!hasNeuralTts()) {
+                const utterance = createSpeechUtterance(cleanText);
+                if (!utterance) return;
+                try { window.speechSynthesis.resume(); window.speechSynthesis.speak(utterance); }
+                catch (err) { console.warn('Speech queue error:', err); }
+                return;
+            }
+            const generation = ttsPlaybackGeneration;
+            ttsPlaybackQueue = ttsPlaybackQueue.catch(() => {}).then(async () => {
+                if (generation !== ttsPlaybackGeneration) return;
+                try {
+                    await playElevenLabsChunk(cleanText, generation);
+                } catch (err) {
+                    console.error('Neural TTS failed:', err);
+                    showToast('تعذر تشغيل الصوت العصبي؛ تحقق من مفتاح ElevenLabs ومعرّف الصوت والرصيد.', 'error');
+                    if (generation === ttsPlaybackGeneration) {
+                        const utterance = createSpeechUtterance(cleanText);
+                        if (utterance) { window.speechSynthesis.resume(); window.speechSynthesis.speak(utterance); }
+                    }
+                }
+            });
+        }
+
+        function speakText(text) {
+            if (hasNeuralTts()) {
+                ttsPlaybackGeneration++;
+                if (activeTtsAudio) {
+                    try { activeTtsAudio.pause(); activeTtsAudio.src = ''; } catch (_) {}
+                    activeTtsAudio = null;
+                }
+                if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+                ttsPlaybackQueue = Promise.resolve();
+                queueSpeechChunk(text);
+                return;
+            }
+            if (!('speechSynthesis' in window)) {
+                showToast('ميزة النطق غير مدعومة في هذا المتصفح', 'error');
+                return;
+            }
+            window.speechSynthesis.cancel();
+            const utterance = createSpeechUtterance(text);
+            if (!utterance) return;
+            try { window.speechSynthesis.resume(); window.speechSynthesis.speak(utterance); }
+            catch (err) { console.warn('Speech error:', err); }
+        }
+
+        async function testTtsConnection() {
+            const serverUrl = (document.getElementById('ttsServerUrlInput').value || '').trim().replace(/\/+$/, '');
+            const voiceId = (document.getElementById('ttsVoiceIdInput').value || '').trim();
+            if (!serverUrl || !voiceId) {
+                showToast('أدخل رابط سيرفر TTS المنشور وVoice ID أولاً.', 'error');
+                return;
+            }
+            appConfig.ttsServerUrl = serverUrl;
+            appConfig.ttsVoiceId = voiceId;
+            appConfig.ttsModel = document.getElementById('ttsModelSelect').value;
+            const btn = document.getElementById('testTtsBtn');
+            const oldHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جارٍ الاختبار';
+            try {
+                await playElevenLabsChunk('مرحباً يا سيدي. أنظمة جارفس جاهزة للعمل.', ttsPlaybackGeneration);
+                saveData();
+                showToast('نجح اختبار صوت جارفس العصبي.', 'success');
+            } catch (err) {
+                console.error(err);
+                showToast('فشل اختبار TTS: تحقق من رابط السيرفر وVoice ID ومفتاح ElevenLabs في إعدادات الاستضافة.', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = oldHtml;
+            }
+        }
+
+        function toggleMicrophone() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                showToast("المتصفح الخاص بك لا يدعم التعرف على الصوت", "error");
+                return;
+            }
+
+            if (isListening) {
+                if (directMicRecognition) directMicRecognition.stop();
+                isListening = false;
+                document.getElementById('micBtn').classList.remove('text-red-400', 'animate-pulse');
+                document.getElementById('jarvisArcReactor').classList.remove('listening');
+                return;
+            }
+
+            try {
+                directMicRecognition = new SpeechRecognition();
+                directMicRecognition.lang = 'ar-SA';
+                directMicRecognition.continuous = false;
+                directMicRecognition.interimResults = true;
+
+                directMicRecognition.onstart = () => {
+                    isListening = true;
+                    document.getElementById('micBtn').classList.add('text-red-400', 'animate-pulse');
+                    document.getElementById('jarvisArcReactor').classList.add('listening');
+                };
+
+                directMicRecognition.onresult = (e) => {
+                    let transcript = '';
+                    for (let i = e.resultIndex; i < e.results.length; i++) {
+                        transcript += e.results[i][0].transcript;
+                    }
+                    document.getElementById('userInput').value = transcript;
+                    autoResizeTextarea(document.getElementById('userInput'));
+                };
+
+                directMicRecognition.onend = () => {
+                    isListening = false;
+                    document.getElementById('micBtn').classList.remove('text-red-400', 'animate-pulse');
+                    document.getElementById('jarvisArcReactor').classList.remove('listening');
+                    if (document.getElementById('userInput').value.trim()) {
+                        voiceTurnPending = true;
+                        handleChatSubmit();
+                    }
+                };
+
+                directMicRecognition.start();
+            } catch (err) {
+                console.error("Mic error:", err);
+                showToast("تعذر الوصول للميكروفون", "error");
+            }
+        }
+
+        function toggleHotwordListener() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                showToast("المتصفح الخاص بك لا يدعم الاستماع الدائم", "error");
+                return;
+            }
+
+            const btnText = document.getElementById('hotwordBtnText');
+            const statusText = document.getElementById('hotwordStatusText');
+            const powerIcon = document.getElementById('hotwordPowerIcon');
+
+            if (isHotwordActive) {
+                if (hotwordRecognition) hotwordRecognition.stop();
+                isHotwordActive = false;
+                btnText.innerText = "تفعيل الاستماع المستمر (24/7)";
+                statusText.innerText = "متوقف";
+                statusText.className = "text-gray-500";
+                powerIcon.className = "fa-solid fa-power-off text-sm";
+                showToast("تم إيقاف الاستماع المستمر", "info");
+                return;
+            }
+
+            try {
+                hotwordRecognition = new SpeechRecognition();
+                hotwordRecognition.lang = 'ar-SA';
+                hotwordRecognition.continuous = true;
+                hotwordRecognition.interimResults = false;
+
+                hotwordRecognition.onstart = () => {
+                    isHotwordActive = true;
+                    btnText.innerText = "إيقاف الاستماع المستمر";
+                    statusText.innerText = "نشط ومستمع للكلمة";
+                    statusText.className = "text-emerald-400 font-bold animate-pulse";
+                    powerIcon.className = "fa-solid fa-power-off text-sm text-red-400";
+                    showToast("تم تفعيل الاستماع المستمر للكلمة 'أحمد'", "success");
+                };
+
+                hotwordRecognition.onresult = (e) => {
+                    const lastResultIndex = e.results.length - 1;
+                    const text = e.results[lastResultIndex][0].transcript.trim().toLowerCase();
+
+                    if (text.includes("أحمد") || text.includes("احمد") || text.includes("jarvis")) {
+                        const cleanedText = text.replace(/أحمد|احمد|jarvis/gi, '').trim();
+                        if (cleanedText) {
+                            document.getElementById('userInput').value = cleanedText;
+                            voiceTurnPending = true;
+                            handleChatSubmit();
+                        } else {
+                            speakText("نعم يا سيدي، أنا أستمع إليك.");
+                        }
+                    }
+                };
+
+                hotwordRecognition.onend = () => {
+                    if (isHotwordActive) hotwordRecognition.start();
+                };
+
+                hotwordRecognition.start();
+            } catch (err) {
+                console.error("Hotword error:", err);
+                showToast("تعذر تشغيل الاستماع المستمر", "error");
+            }
+        }
+
+        // Memory & Fact Vault Management
+        function extractAndLearnFacts(userText) {
+            const text = String(userText || '').trim();
+            if (!text || text.length < 5) return;
+            const lower = text.toLowerCase();
+            const explicitSave = /احفظ|افتكر|تذكر|خلي بالك|سجل عندك|remember|save this|don't forget|do not forget/i.test(text);
+            const personalFact = /(اسمي|أنا اسمي|انا اسمي|عمري|أدرس|بدرس|أعمل|بشتغل|أفضل|بحب|أحب|لا أحب|مش بحب|هدفي|مشروعي|مشروعي اسمه|أستخدم|هاتفى|تليفوني|تلفوني|أعيش في|ساكن في|من الآن فصاعدا|من دلوقتي|my name is|i am|i'm|i study|i like|i prefer|my goal|my project|i use)/i.test(text);
+            // Learn explicit memories and meaningful self-descriptions; avoid saving every question.
+            if (!explicitSave && !personalFact) return;
+            const normalized = text.replace(/[\s،,.!?؟]+$/g, '').toLowerCase();
+            if (jarvisMemories.some(m => String(m.content || '').replace(/[\s،,.!?؟]+$/g, '').toLowerCase() === normalized)) return;
+            jarvisMemories.push({
+                id: 'mem_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+                content: text,
+                date: new Date().toLocaleDateString('ar-EG'),
+                updatedAt: new Date().toISOString()
+            });
+            // Keep a practical memory vault size and preserve the newest saved facts.
+            if (jarvisMemories.length > 500) jarvisMemories = jarvisMemories.slice(-500);
+            saveData();
+            updateMemoryBadge();
+        }
+
+        function exportJarvisBackup() {
+            try {
+                const safeConfig = { ...appConfig, apiKey: '' };
+                const backup = {
+                    app: 'JARVIS Memory Backup', version: 2, exportedAt: new Date().toISOString(),
+                    memories: jarvisMemories, chats, affectState: jarvisAffectState, awarenessState: jarvisAwarenessState, config: safeConfig
+                };
+                const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = 'JARVIS_Memory_Backup_' + new Date().toISOString().slice(0, 10) + '.json';
+                document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+                showToast('تم تصدير نسخة الذاكرة والمحادثات دون مفتاح API', 'success');
+            } catch (err) { showToast('تعذر تصدير النسخة الاحتياطية', 'error'); }
+        }
+
+        function importJarvisBackup(event) {
+            const file = event && event.target && event.target.files && event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const data = JSON.parse(String(reader.result || '{}'));
+                    if (!Array.isArray(data.memories) || !Array.isArray(data.chats)) throw new Error('invalid backup');
+                    const confirmed = window.confirm('ستتم إضافة بيانات النسخة إلى الذاكرة الحالية دون استبدال مفتاح API. هل تريد المتابعة؟');
+                    if (!confirmed) return;
+                    const seen = new Set(jarvisMemories.map(m => String(m.content || '').toLowerCase()));
+                    for (const mem of data.memories) {
+                        if (mem && typeof mem.content === 'string' && !seen.has(mem.content.toLowerCase())) {
+                            jarvisMemories.push({ ...mem, id: mem.id || ('mem_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)) });
+                            seen.add(mem.content.toLowerCase());
+                        }
+                    }
+                    const knownChatIds = new Set(chats.map(c => c.id));
+                    for (const chat of data.chats) {
+                        if (chat && Array.isArray(chat.messages) && !knownChatIds.has(chat.id)) chats.push(chat);
+                    }
+                    if (data.config) appConfig = { ...appConfig, ...data.config, apiKey: appConfig.apiKey };
+                    if (data.affectState && typeof data.affectState === 'object') jarvisAffectState = { ...defaultAffectState, ...data.affectState };
+                    if (data.awarenessState && typeof data.awarenessState === 'object') jarvisAwarenessState = { ...jarvisAwarenessState, ...data.awarenessState };
+                    saveData(); updateMemoryBadge(); updateAffectBadge(); renderMemoryFacts(); renderHistoryList();
+                    showToast('تمت استعادة الذاكرة والمحادثات بنجاح', 'success');
+                } catch (_) { showToast('ملف النسخة الاحتياطية غير صالح أو تالف', 'error'); }
+                finally { event.target.value = ''; }
+            };
+            reader.readAsText(file);
+        }
+
+        function updateMemoryBadge() {
+            document.getElementById('memoryCountBadge').innerText = `${jarvisMemories.length} حقائق`;
+        }
+
+        function openMemoryModal() {
+            renderMemoryFacts();
+            document.getElementById('memoryModal').classList.remove('hidden');
+        }
+
+        function closeMemoryModal() {
+            document.getElementById('memoryModal').classList.add('hidden');
+        }
+
+        function renderMemoryFacts() {
+            const listEl = document.getElementById('memoryFactsList');
+            listEl.innerHTML = '';
+
+            if (jarvisMemories.length === 0) {
+                listEl.innerHTML = `<div class="text-center text-gray-500 text-xs py-6">لا توجد حقائق محفوظة بعد.</div>`;
+                return;
+            }
+
+            jarvisMemories.forEach(mem => {
+                const item = document.createElement('div');
+                item.className = 'flex items-center justify-between p-2.5 bg-jarvisDark border border-jarvisBorder rounded-xl text-xs';
+                item.innerHTML = `
+                    <div class="flex items-center gap-2 text-gray-200">
+                        <i class="fa-solid fa-circle-dot text-[8px] text-amber-400"></i>
+                        <span>${escapeHtml(mem.content)}</span>
+                    </div>
+                    <button onclick="deleteMemory('${mem.id}')" class="text-gray-500 hover:text-red-400 p-1">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                `;
+                listEl.appendChild(item);
+            });
+        }
+
+        function addManualFact() {
+            const input = document.getElementById('manualFactInput');
+            const val = input.value.trim();
+            if (!val) return;
+
+            jarvisMemories.push({
+                id: 'mem_' + Date.now(),
+                content: val,
+                date: new Date().toLocaleDateString('ar-EG')
+            });
+            input.value = '';
+            saveData();
+            updateMemoryBadge();
+            renderMemoryFacts();
+            showToast("تم إضافه الحقيقة للذاكرة", "success");
+        }
+
+        function deleteMemory(id) {
+            jarvisMemories = jarvisMemories.filter(m => m.id !== id);
+            saveData();
+            updateMemoryBadge();
+            renderMemoryFacts();
+        }
+
+        function clearAllMemories() {
+            jarvisMemories = [];
+            saveData();
+            updateMemoryBadge();
+            renderMemoryFacts();
+            showToast("تم مسح كافة الحقائق المحفوظة", "info");
+        }
+
+        // Settings Modal Controls
+        function openSettingsModal() {
+            document.getElementById('settingsModal').classList.remove('hidden');
+        }
+
+        function closeSettingsModal() {
+            document.getElementById('settingsModal').classList.add('hidden');
+        }
+
+        function saveSettings() {
+            const apiKey = cleanApiKey(document.getElementById('apiKeyInput').value);
+            const model = document.getElementById('modelSelect').value;
+            const ttsServerUrl = (document.getElementById('ttsServerUrlInput').value || '').trim().replace(/\/+$/, '');
+            const ttsVoiceId = (document.getElementById('ttsVoiceIdInput').value || '').trim();
+            const ttsModel = document.getElementById('ttsModelSelect').value;
+            const speechRate = parseFloat(document.getElementById('speechRateInput').value);
+            const speechPitch = parseFloat(document.getElementById('speechPitchInput').value);
+
+            appConfig.apiKey = apiKey;
+            appConfig.model = model;
+            appConfig.ttsServerUrl = ttsServerUrl;
+            appConfig.ttsVoiceId = ttsVoiceId;
+            appConfig.ttsModel = ttsModel;
+            appConfig.speechRate = speechRate;
+            appConfig.speechPitch = speechPitch;
+
+            document.getElementById('modelHeaderBadge').innerText = model;
+
+            saveData();
+            closeSettingsModal();
+            showToast("تم حفظ الإعدادات بنجاح", "success");
+        }
+
+        async function testApiConnection() {
+            const rawKey = document.getElementById('apiKeyInput').value;
+            const apiKey = cleanApiKey(rawKey);
+            document.getElementById('apiKeyInput').value = apiKey;
+            
+            const diagBox = document.getElementById('diagStatusBox');
+            const diagText = document.getElementById('diagStatusText');
+            const btn = document.getElementById('testApiBtn');
+
+            if (!apiKey || !apiKey.startsWith('gsk_')) {
+                showToast("يرجى إدخال مفتاح Groq API يبدأ بـ gsk_", "error");
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> جارٍ الفحص...`;
+            diagBox.classList.remove('hidden');
+            diagText.innerHTML = `<span class="text-cyan-400"><i class="fa-solid fa-spinner animate-spin"></i> جارٍ اختبار الاتصال بـ Groq API...</span>`;
+
+            try {
+                const selectedModel = document.getElementById('modelSelect').value;
+                const result = await executeGroqApiCall([{ role: 'user', content: 'مرحباً' }], selectedModel, apiKey, null);
+
+                if (result.text) {
+                    diagText.innerHTML = `
+                        <div class="space-y-1 font-sans">
+                            <div class="text-emerald-400 font-bold"><i class="fa-solid fa-circle-check"></i> الاتصال بـ Groq ناجح وسريع جداً!</div>
+                            <div class="text-[11px] text-gray-300">النموذج النشط: <span class="font-mono text-cyan-400">${escapeHtml(selectedModel)}</span></div>
+                        </div>`;
+                    showToast("تم التحقق بنجاح من مفتاح Groq!", "success");
+                } else {
+                    throw new Error("لم يتلق المتصفح استجابة من محرك Groq.");
+                }
+
+            } catch (err) {
+                diagText.innerHTML = `
+                    <div class="space-y-1.5 font-sans text-xs">
+                        <div class="text-red-400 font-bold"><i class="fa-solid fa-circle-xmark"></i> فشل الاتصال!</div>
+                        <div class="text-gray-300 leading-relaxed text-[11px]">
+                            <b>سبب الخطأ:</b> ${escapeHtml(err.message)}
+                        </div>
+                        <div class="text-amber-400 text-[10px] pt-1">
+                            💡 احصل على مفتاح مجاني فوراً من <b>console.groq.com</b>.
+                        </div>
+                    </div>`;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fa-solid fa-plug"></i> فحص الاتصال`;
+            }
+        }
+
+        function triggerDeviceControl(action) {
+            if (action === 'fullscreen') {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch(e => console.log(e));
+                } else {
+                    document.exitFullscreen().catch(e => console.log(e));
+                }
+            }
+        }
+
+        function usePromptSuggestion(promptText) {
+            document.getElementById('userInput').value = promptText;
+            autoResizeTextarea(document.getElementById('userInput'));
+            handleChatSubmit();
+        }
+
+        function handleKeyDown(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleChatSubmit();
+            }
+        }
+
+        function copyToClipboard(text) {
+            const temp = document.createElement('textarea');
+            temp.value = text;
+            document.body.appendChild(temp);
+            temp.select();
+            document.execCommand('copy');
+            document.body.removeChild(temp);
+            showToast("تم نسخ النص للفرشاة", "success");
+        }
+
+        // Explicitly Bind Functions to Window object to resolve inline HTML onclick handler ReferenceErrors
+        window.toggleSidebar = toggleSidebar;
+        window.toggleHotwordListener = toggleHotwordListener;
+        window.createNewChat = createNewChat;
+        window.switchChat = switchChat;
+        window.deleteChat = deleteChat;
+        window.clearCurrentChatMessages = clearCurrentChatMessages;
+        window.openMemoryModal = openMemoryModal;
+        window.closeMemoryModal = closeMemoryModal;
+        window.addManualFact = addManualFact;
+        window.deleteMemory = deleteMemory;
+        window.clearAllMemories = clearAllMemories;
+        window.openSettingsModal = openSettingsModal;
+        window.closeSettingsModal = closeSettingsModal;
+        window.saveSettings = saveSettings;
+        window.testApiConnection = testApiConnection;
+        window.triggerDeviceControl = triggerDeviceControl;
+        window.usePromptSuggestion = usePromptSuggestion;
+        window.handleChatSubmit = handleChatSubmit;
+        window.handleKeyDown = handleKeyDown;
+        window.autoResizeTextarea = autoResizeTextarea;
+        window.toggleMicrophone = toggleMicrophone;
+        window.stopAudioAndGeneration = stopAudioAndGeneration;
+        window.speakText = speakText;
+        window.copyToClipboard = copyToClipboard;
+        window.updateAffectBadge = updateAffectBadge;
+
+        // Initialize Application on Page Load
+        window.onload = function() {
+            loadStoredData();
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.getVoices();
+                window.speechSynthesis.onvoiceschanged = () => getPreferredArabicVoice();
+            }
+
+            // Device Status Monitoring
+            if ('getBattery' in navigator) {
+                navigator.getBattery().then(batt => {
+                    const updateBatt = () => {
+                        document.getElementById('battVal').innerText = `${Math.round(batt.level * 100)}%`;
+                    };
+                    updateBatt();
+                    batt.addEventListener('levelchange', updateBatt);
+                });
+            }
+
+            window.addEventListener('online', () => {
+                document.getElementById('netVal').innerText = "متصل";
+                document.getElementById('netVal').className = "text-emerald-400";
+            });
+            window.addEventListener('offline', () => {
+                document.getElementById('netVal').innerText = "غير متصل";
+                document.getElementById('netVal').className = "text-red-400";
+            });
+        };
+    </script>
+</body>
+</html>
